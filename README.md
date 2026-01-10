@@ -13,6 +13,9 @@ While not strictly required PatchFox is a unique tool and a lot is going to make
 
 ** TODO ADD DOCS FROM DOCS FOLDER HERE FOR EASY REFERENCE ** 
 
+## BEFORE WE DIG INTO THINGS CAN YOU TL'DR WHAT WE'RE GOING TO BE DOING? 
+ASDF 
+
 ## CLONE AND BUILD THE SERVICES 
 
 ### CLONE THE SERVICES 
