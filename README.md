@@ -166,12 +166,11 @@ Quite a lot. The limitation on pipeline processing beyond available compute is t
 That being said - PatchFox need only process a small subset of the data that gets uploaded in order to provide value. It's entirely possible tens of thousands of datasource_event's are uploaded to PatchFox but only a few hundred need to be processed. In fact, often only the HEAD events (the most recent commit to a datasource) is all you need. Interally we use [this sql script](https://github.com/patchfox-io/etl-root/blob/main/sql/fetch_n_months_of_dse_history.sql) to mark events we want to process prior to allowing the orchestrate service to start a job. In this way we're able to process a sample of the data and reduce total processing time by a gazillion. 
 
 
+### OTHER HELPFUL DOCS 
+
+* [data-service api guide](reference/data_service_api.md)
+* [db entities](reference/entities/entities.md)
+
+
 ## I'M STUCK - HOW DO I GET HELP? 
 If the docs aren't helpful please feel free to open a github issue. We'll respond quickly and hopefully get you back on track 🍻
-
-
-
-
-
-
-
