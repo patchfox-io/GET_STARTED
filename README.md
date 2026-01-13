@@ -66,8 +66,6 @@ mvn clean install jib:dockerBuild
 * [data-service](https://github.com/patchfox-io/data-service)
   * provides api access to the PatchFox pipeline and datastore 
 
- 
-## GET THINGS GOING 
 
 ### SET UP YOUR PYTHON VIRTUAL ENVIRONMENT AND THE OTHER PYTHON THINGS
 There are two python things in PatchFox. One is [etl-root](https://github.com/patchfox-io/etl-root). The other is [patch-ai](https://github.com/patchfox-io/patch-ai-service). 
@@ -79,6 +77,9 @@ For `patch-ai`, you'll need to use a different command but use the venv from the
 ```
 pip install -e .
 ```
+
+ 
+## GET THINGS GOING 
 
 ### START THE PIPELINE 
 **NOTE** IF YOU ARE BEHIND A CORPORATE FIREWALL AND/OR YOUR ORGANIZATION USES SOMETHING LIKE ZSCALER OR NETSKOPE THAT INTERCEPTS HTTPS TRAFFIC AND DOES FUN THINGS WITH CERTIFICATES THIS MIGHT FAIL.
