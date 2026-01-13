@@ -3,7 +3,7 @@ How to get started running PatchFox on your workstation 🦊
 
 ## PREREQUISITES 
 
-* a linux environment
+* a linux or MacOS environment
   * **NOTE** IF YOU ARE ON WINDOWS YOU NEED TO USE A FULL 'NIX IMAGE -- WSL2 WON'T WORK PROPERLY 
 * java 21
 * maven 3
