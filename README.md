@@ -28,13 +28,10 @@ PatchFox on the backend is a flotilla of microservices and custom libraries that
 #### CLONE THESE FIRST - THEY DON'T NEED TO BE COMPILED 
 * [patch-ai](https://github.com/patchfox-io/patch-ai-service)
   * enables genAI user interface to PatchFox
-  * [clone](git@github.com:patchfox-io/patch-ai-service.git)
 * [docker-compose](https://github.com/patchfox-io/docker-compose)
   * configures and orchestrates pipeline start and stop
-  * [clone](git@github.com:patchfox-io/docker-compose.git)
 * [etl-root](https://github.com/patchfox-io/etl-root)
   * Helper scripts used to push data into PatchFox
-  * [clone](git@github.com:patchfox-io/etl-root.git)
 
 #### CLONE THESE NEXT AND COMPILE THEM 
 
@@ -44,10 +41,8 @@ mvn clean install
 ```
 * [db-entities](https://github.com/patchfox-io/db-entities)
   * PatchFox library that contains all db entities used by same
-  * [clone](git@github.com:patchfox-io/db-entities.git)
 * [package-utils](https://github.com/patchfox-io/package-utils)
   * PatchFox library that provides logic for processing packages (ie - dependencies)
-  * [clone](https://github.com/patchfox-io/package-utils)
 
 #### CLONE THESE NEXT AND COMPILE THEM AND BUILD THEIR DOCKER IMAGES 
 **NOTE** IF YOU ARE BEHIND A CORPORATE FIREWALL AND/OR YOUR ORGANIZATION USES SOMETHING LIKE ZSCALER OR NETSKOPE THAT INTERCEPTS HTTPS TRAFFIC AND DOES FUN THINGS WITH CERTIFICATES THIS MIGHT FAIL.
@@ -60,22 +55,16 @@ mvn clean install jib:dockerBuild
 
 * [input-service](https://github.com/patchfox-io/input-service)
   * is the port of entry for all datasource_events into the pipeline.
-  * [clone](git@github.com:patchfox-io/input-service.git)
 * [orchestrate-service](https://github.com/patchfox-io/orchestrate-service)
   * job manager 
-  * [clone](git@github.com:patchfox-io/orchestrate-service.git)
 * [grype-service](https://github.com/patchfox-io/grype-service)
   * enrichment service that performs OSS scanning on the dependency graph contained in a datasource_event.
-  * [clone](git@github.com:patchfox-io/grype-service.git)
 * [package-index-service](https://github.com/patchfox-io/package-index-service)
   * enrichment service that queries the germane package index (maven central, pypi, etc) to add context to the dependency graph contained in a datasource_event.
-  * [clone](git@github.com:patchfox-io/package-index-service.git)
 * [analyze-service](https://github.com/patchfox-io/analyze-service)
   * aggregates top level metrics at the dataset and datasource level.
-  * [clone](git@github.com:patchfox-io/analyze-service.git)
 * [data-service](https://github.com/patchfox-io/data-service)
   * provides api access to the PatchFox pipeline and datastore 
-  * [clone](git@github.com:patchfox-io/data-service.git)
 
  
 ## GET THINGS GOING 
