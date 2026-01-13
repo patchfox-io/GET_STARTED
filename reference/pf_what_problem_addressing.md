@@ -1,0 +1,10 @@
+# What problem is PatchFox addressing? 
+The sausage making of a technology company is a lot like actual sausage making. It's a dirtier process than you think and in both cases there are rules you have to follow if you want to stay in business; rules regarding what ends up in the sausage. If your product has too much rat shit in it sooner or later the health inspector is going to shut you down. It's the same thing in software. In software we call what goes into the sausage a "dependency". 
+
+The pain point for companies is they have to pass audits. For a technology company this means proving they keep track of what goes into what they make and deal with situations where what goes into what they make is later discovered to be a problem. The challenge is doing that at the scale a large multinational corporation operates at. This is the problem PatchFox addresses. 
+
+PatchFox makes remaining compliant and passing those audits easier and cheaper. It does that in a few different ways:
+
+* Unlike other products, PatchFox analyzes your dependency data holistically. We pay attention to more than just findings and we follow the story of your data by processing it as what it is - a time series. PatchFox can monitor trends, make efficacious predictions as to what is likely to happen in future, and take premptive action to avoid problems before they become problems. **The net result being less time spent patching and more time spent building product.**
+
+* PatchFox provides a genAI agent that is installed in a company's Slack workspace or is accessible as at the terminal. It provides the means of interacting with the data in a manner technical and non technical users alike are comfortable with. No more multiple apps and multiple dashboards and multiple jira tickets. **PatchFox provides a central point of contact to manage everything**
