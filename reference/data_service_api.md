@@ -47,8 +47,6 @@ GET /api/v1/db/datasetMetrics/query?commitDateTime=gte.2024-01-01T00:00:00Z&gt.2
 ```
 
 **Pattern Matching For String Values:**
-!!! IMPORTANT -- DOES NOT SUPPORT `*` OR ANY OTHER FORM OF WILDCARD VALUE. MATCHES ARE FUZZY BY DEFAULT !!!
-
 ```http
 GET /api/v1/db/findingData/query?description=SQL # Contains "SQL"
 ```
