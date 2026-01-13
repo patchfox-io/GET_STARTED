@@ -2,87 +2,175 @@
 How to get started running PatchFox on your workstation 🦊
 
 ## PREREQUISITES 
+
 * a linux environment
   * **NOTE** IF YOU ARE ON WINDOWS YOU NEED TO USE A FULL 'NIX IMAGE -- WSL2 WON'T WORK PROPERLY 
 * java 21
 * maven 3
 * docker
+* python >= 3.14
+* some kind of SQL tool. [DBeaver](https://dbeaver.io/) is free and it works.
+* [syft](https://github.com/anchore/syft) if you want to push your own data through PatchFox 
 
 ## NOT EXACTLY A PREREQUISITE BUT A GOOD IDEA 
 While not strictly required PatchFox is a unique tool and a lot is going to make a lot more sense if you take a moment to read these short docs that explain what PatchFox is and how it works: 
 
-** TODO ADD DOCS FROM DOCS FOLDER HERE FOR EASY REFERENCE ** 
-
-## BEFORE WE DIG INTO THINGS CAN YOU TL'DR WHAT WE'RE GOING TO BE DOING? 
-ASDF 
+* [tl'dr What is PatchFox?](reference/tldr_what_is_pf.md)
+* [What Problem is PatchFox Addressing?](reference/pf_what_problem_addressing.md)
+* [How PatchFox Represents Information](reference/pf_data_nomenclature.md)
 
 ## CLONE AND BUILD THE SERVICES 
 
 ### CLONE THE SERVICES 
-PatchFox on the backend is a flotilla of microservices that together consitute a data analytics pipeline. **TODO** IN THIS REPO YOU ARE GOING TO USE A HELPER SCRIPT TO CLONE YOU NEED **TODO** The services you'll be cloneing are:
-* input-service
-  * is the port of entry for all datasource_events into the pipeline.
-* orchestrate-service
-  * job manager 
-* grype-service
-  * enrichment service that performs OSS scanning on the dependency graph contained in a datasource_event.
-* package-index-service
-  * enrichment service that queries the germane package index (maven central, pypi, etc) to add context to the dependency graph contained in a datasource_event.
-* analyze-service
-  * aggregates top level metrics at the dataset and datasource level.
-* data-service
-  * provides api access to the PatchFox pipeline and datastore 
-* patch-ai
+PatchFox on the backend is a flotilla of microservices and custom libraries that together constitute a data analytics pipeline. We're going to be doing a lot of cloning and building here. Buckle up. 
+
+
+#### CLONE THESE FIRST - THEY DON'T NEED TO BE COMPILED 
+* [patch-ai](https://github.com/patchfox-io/patch-ai-service)
   * enables genAI user interface to PatchFox
-* docker-compose
+  * [clone](git@github.com:patchfox-io/patch-ai-service.git)
+* [docker-compose](https://github.com/patchfox-io/docker-compose)
   * configures and orchestrates pipeline start and stop
-* db-entities
-  * PatchFox library that contains all db entities used by same
-* package-utils
-  * PatchFox library that provides logic for processing packages (ie - dependencies)
-* etl-root
+  * [clone](git@github.com:patchfox-io/docker-compose.git)
+* [etl-root](https://github.com/patchfox-io/etl-root)
   * Helper scripts used to push data into PatchFox
-  
- ### BUILD THE SERVICES 
- **TODO** use script $$$$$$ to build all the services and produce docker images for same. 
+  * [clone](git@github.com:patchfox-io/etl-root.git)
+
+#### CLONE THESE NEXT AND COMPILE THEM 
+
+Command to compile:
+```
+mvn clean install 
+```
+* [db-entities](https://github.com/patchfox-io/db-entities)
+  * PatchFox library that contains all db entities used by same
+  * [clone](git@github.com:patchfox-io/db-entities.git)
+* [package-utils](https://github.com/patchfox-io/package-utils)
+  * PatchFox library that provides logic for processing packages (ie - dependencies)
+  * [clone](https://github.com/patchfox-io/package-utils)
+
+#### CLONE THESE NEXT AND COMPILE THEM AND BUILD THEIR DOCKER IMAGES 
+
+Command to compile and build docker image
+```
+mvn clean install jib:dockerBuild
+```
+
+* [input-service](https://github.com/patchfox-io/input-service)
+  * is the port of entry for all datasource_events into the pipeline.
+  * [clone](git@github.com:patchfox-io/input-service.git)
+* [orchestrate-service](https://github.com/patchfox-io/orchestrate-service)
+  * job manager 
+  * [clone](git@github.com:patchfox-io/orchestrate-service.git)
+* [grype-service](https://github.com/patchfox-io/grype-service)
+  * enrichment service that performs OSS scanning on the dependency graph contained in a datasource_event.
+  * [clone](git@github.com:patchfox-io/grype-service.git)
+* [package-index-service](https://github.com/patchfox-io/package-index-service)
+  * enrichment service that queries the germane package index (maven central, pypi, etc) to add context to the dependency graph contained in a datasource_event.
+  * [clone](git@github.com:patchfox-io/package-index-service.git)
+* [analyze-service](https://github.com/patchfox-io/analyze-service)
+  * aggregates top level metrics at the dataset and datasource level.
+  * [clone](git@github.com:patchfox-io/analyze-service.git)
+* [data-service](https://github.com/patchfox-io/data-service)
+  * provides api access to the PatchFox pipeline and datastore 
+  * [clone](git@github.com:patchfox-io/data-service.git)
+
  
 ## GET THINGS GOING 
+
+### SET UP YOUR PYTHON VIRTUAL ENVIRONMENT AND THE OTHER PYTHON THINGS
+There are two python things in PatchFox. One is [etl-root](https://github.com/patchfox-io/etl-root). The other is [patch-ai](https://github.com/patchfox-io/patch-ai-service). 
+
+For `etl-root`, you'll need to install the requirements.txt file into a local python venv. See [this](https://docs.python-guide.org/dev/virtualenvs/) for help on how to do that. It is strongly recommended you use virtual env for this as you'll need it for the next step. 
+
+For `patch-ai`, you'll need to use a different command but use the venv from the previous step. 
+
+```
+pip install -e .
+```
 
 ### START THE PIPELINE 
 From the `docker-compose` directory, execute command 
 ```
 docker compose up 
 ```
-This will bootstrap the pipeline - sans the GenAI interface. To access that, execute command 
-```
-**TODO** PUT COMMAND HERE 
-```
 
-*NOTE* each PatchFox service proves a swagger doc describing it's interface. The data-service's can be found at `http://localhost:1702/swagger-ui.html`. The data-service proves access to all data stored in the pipeline. It is highly recommended the user access this - in particular - the db query endpoints described in the aforementioned doc **TODO DOC LINK** 
+This will bootstrap the pipeline - sans the GenAI interface. 
+
+*NOTE* each PatchFox service proves a swagger doc describing it's interface. The data-service's can be found at `http://localhost:1702/swagger-ui.html`. The data-service proves access to all data stored in the pipeline. It is highly recommended the user access this - in particular - the db query endpoints described in the aforementioned doc 
 
 ### GET SAMPLE DATA INTO PATCHFOX
-PatchFox provides database dumps of already-processed sample data sourced from public github organizations (eg github.com/reddit, github.com/ibm, etc). To load that dump into your locally running PatchFox environment execute script **TODO PUT SCRIPT HERE** 
+PatchFox provides database dumps of already-processed sample data sourced from public github organizations (eg github.com/reddit, github.com/ibm, etc). 
+
+1. download the [dump](https://drive.google.com/file/d/1wj1dwPAazBwbt5-tKFcIilgfK3qMRCQw/view?usp=drive_link)
+2. use the following command to copy the dump file into the PatchFox Postgres container
+```
+docker cp ./reddit_github_recommended_25NOV25.sql.gz docker-compose-postgres-1:/
+```
+3. log into the postgres container
+```
+docker exec -it docker-compose-postgres-1 /bin/bash 
+```
+4. from within the container, unzip the dump 
+```
+gunzip reddit_github_recommended_25NOV25.sql.gz
+```
+5. import the dump into postgres **VERY IMPORTANT DO THIS STEP TWICE!!!**
+```
+psql -U mr_data mrs_db < reddit_github_recommended_25NOV25.sql
+```
+6. exit out of the container and return to host terminal (did you perform step 5 twice?)
+```
+exit
+```
+
+At this point you should have data loaded into PatchFox. To verify you can:
+* use the dataservice api to query the database (http://localhost:1702/api/v1/datasources is a good quick check)
+* use your database manager (like DBeaver) to inspect the tables. The connection details are: 
+  * db name: mrs_db
+  * username: mr_data 
+  * password: omnomdata
+  * host: localhost
+  * port: 54321
+
+### DO STUFF WITH PATCHFOX 
+Beyond accessing data by way of the database directly or the data-service, PatchFox also has a genAI interface. To use that interface we'll need to do a few things:
+
+1. in the patch-ai directory, open up file `slack_shit.txt` in your favorite editor 
+
+2. For whatever model you intend to use you'll need to ensure the appropriate API key is specified in this file. 
+
+3. execute `source slack_shit.txt` to ensure all the necessary env vars are loaded 
+
+4. after ensuring first that you've activate the python venv you created earlier, execute the `slackbot.py` file. 
+
+5. in a new terminal, and again ensuring first to activate the python venv, execute the `console_chat.py` file. This terminal will be your genAI 
+interface into PatchFox. 
+
 
 ### GET -->YOUR<-- DATA INTO PATCHFOX 
-In the etl-root project there are several scripts designed to help you load data on your workstation into PatchFox. The steps are **TODO** 
+In the etl-root project there are several scripts designed to help you load data on your workstation into PatchFox. 
+
+0. ensure you've installed syft as per the prerequisite section of this doc. 
+1. goto the `etl-raw` directory 
+2. ensure you've got your python venv activated 
+3. open file `env.sh` and update the env vars that are marked as needing to be updated. 
+4. save `env.sh` and execute command `source env.sh` to load the vars 
+5. at this point you're ready to upload data to your locally running PatchFox installation. You're going to point a helper script to a directory on your file system that contains the git repos you want PatchFox to process. 
+
+```
+run_local.sh {DIRECTORY THAT CONTAINS GIT REPOS}
+```
 
 ### GET -->YOUR<-- DATA INTO PATCHFOX BY WAY OF CI/CD 
 We have a [ci-cd component](https://hub.docker.com/r/patchfoxio/patchfox-etl) for that! Reach out to us to get the necessary env vars. 
 
-## WHAT HAPPENS NOW? 
-
-### WHAT IS PATCHFOX DOING AND HOW LONG WILL IT TAKE? 
-PatchFox 
 
 ### HOW MUCH DATA CAN I PUT INTO PATCHFOX? 
-ASDF
+Quite a lot. The limitation on pipeline processing beyond available compute is time. The `analyze-service` needs to process records in ASC order by commitDateTime and thus can't be parallelized. The current implementation of PF runs efficiently per record. That being said, When the dataset contains hundreds of thousands of packages and tens of thousands of findings, it can take ~2.5m for analyze to process each record. 
 
-### HOW DO I ENGAGE WITH THE DATA? 
-data-service 
-genAI 
+That being said - PatchFox need only process a small subset of the data that gets uploaded in order to provide value. It's entirely possible tens of thousands of datasource_event's are uploaded to PatchFox but only a few hundred need to be processed. In fact, often only the HEAD events (the most recent commit to a datasource) is all you need. Interally we use [this sql script](https://github.com/patchfox-io/etl-root/blob/main/sql/fetch_n_months_of_dse_history.sql) to mark events we want to process prior to allowing the orchestrate service to start a job. In this way we're able to process a sample of the data and reduce total processing time by a gazillion. 
 
-### WHAT CAN PATCHFOX DO THAT OTHER TOOLS CAN'T? 
-ASDF
 
 ## I'M STUCK - HOW DO I GET HELP? 
 If the docs aren't helpful please feel free to open a github issue. We'll respond quickly and hopefully get you back on track 🍻
