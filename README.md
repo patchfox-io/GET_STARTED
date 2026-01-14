@@ -1,6 +1,9 @@
 # GET STARTED
 How to get started running PatchFox on your workstation 🦊
 
+## GENAI CAN BE USED TO INSTALL PATCHFOX!
+We've had success using claude code to install PatchFox on a workstation simply by pointing it to this document and asking it to install PatchFox. If you have access to Claude Code or a similar tool we recommend this approach as by far the easiest way to install PatchFox.
+
 ## PREREQUISITES 
 
 * a linux or MacOS environment
