@@ -1,10 +1,12 @@
 # GET STARTED
 How to get started running PatchFox on your workstation 🦊
 
-## GENAI CAN BE USED TO INSTALL PATCHFOX!
+## INSTALL WITH GENAI
 We've had success using claude code to install PatchFox on a workstation simply by pointing it to this document and asking it to install PatchFox. If you have access to Claude Code or a similar tool we recommend this approach as by far the easiest way to install PatchFox.
 
-## PREREQUISITES 
+## INSTALL MANUALLY
+
+### PREREQUISITES 
 
 * a linux or MacOS environment
   * **NOTE** IF YOU ARE ON WINDOWS YOU NEED TO USE A FULL 'NIX IMAGE -- WSL2 WON'T WORK PROPERLY 
@@ -15,20 +17,20 @@ We've had success using claude code to install PatchFox on a workstation simply 
 * some kind of SQL tool. [DBeaver](https://dbeaver.io/) is free and it works.
 * [syft](https://github.com/anchore/syft) if you want to push your own data through PatchFox 
 
-## NOT EXACTLY A PREREQUISITE BUT A GOOD IDEA 
+### NOT EXACTLY A PREREQUISITE BUT A GOOD IDEA 
 While not strictly required PatchFox is a unique tool and a lot is going to make a lot more sense if you take a moment to read these short docs that explain what PatchFox is and how it works: 
 
 * [tl'dr What is PatchFox?](reference/tldr_what_is_pf.md)
 * [What Problem is PatchFox Addressing?](reference/pf_what_problem_addressing.md)
 * [How PatchFox Represents Information](reference/pf_data_nomenclature.md)
 
-## CLONE AND BUILD THE SERVICES 
+### CLONE AND BUILD THE SERVICES 
 
-### CLONE THE SERVICES 
+#### CLONE THE SERVICES 
 PatchFox on the backend is a flotilla of microservices and custom libraries that together constitute a data analytics pipeline. We're going to be doing a lot of cloning and building here. Buckle up. 
 
 
-#### CLONE THESE FIRST - THEY DON'T NEED TO BE COMPILED 
+##### CLONE THESE FIRST - THEY DON'T NEED TO BE COMPILED 
 * [patch-ai](https://github.com/patchfox-io/patch-ai-service)
   * enables genAI user interface to PatchFox
 * [docker-compose](https://github.com/patchfox-io/docker-compose)
@@ -36,7 +38,7 @@ PatchFox on the backend is a flotilla of microservices and custom libraries that
 * [etl-root](https://github.com/patchfox-io/etl-root)
   * Helper scripts used to push data into PatchFox
 
-#### CLONE THESE NEXT AND COMPILE THEM 
+##### CLONE THESE NEXT AND COMPILE THEM 
 
 Command to compile:
 ```
@@ -47,7 +49,7 @@ mvn clean install
 * [package-utils](https://github.com/patchfox-io/package-utils)
   * PatchFox library that provides logic for processing packages (ie - dependencies)
 
-#### CLONE THESE NEXT AND COMPILE THEM AND BUILD THEIR DOCKER IMAGES 
+##### CLONE THESE NEXT AND COMPILE THEM AND BUILD THEIR DOCKER IMAGES 
 **NOTE** IF YOU ARE BEHIND A CORPORATE FIREWALL AND/OR YOUR ORGANIZATION USES SOMETHING LIKE ZSCALER OR NETSKOPE THAT INTERCEPTS HTTPS TRAFFIC AND DOES FUN THINGS WITH CERTIFICATES THIS MIGHT FAIL.
 
 Command to compile and build docker image. 
@@ -70,7 +72,7 @@ mvn clean install jib:dockerBuild
   * provides api access to the PatchFox pipeline and datastore 
 
 
-### SET UP YOUR PYTHON VIRTUAL ENVIRONMENT AND THE OTHER PYTHON THINGS
+#### SET UP YOUR PYTHON VIRTUAL ENVIRONMENT AND THE OTHER PYTHON THINGS
 There are two python things in PatchFox. One is [etl-root](https://github.com/patchfox-io/etl-root). The other is [patch-ai](https://github.com/patchfox-io/patch-ai-service). 
 
 For `etl-root`, you'll need to install the requirements.txt file into a local python venv. See [this](https://docs.python-guide.org/dev/virtualenvs/) for help on how to do that. It is strongly recommended you use virtual env for this as you'll need it for the next step. 
