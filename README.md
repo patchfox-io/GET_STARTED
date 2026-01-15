@@ -84,7 +84,13 @@ pip install -e .
 ```
 
  
-## GET THINGS GOING 
+## GET THINGS GOING WITH GENAI 
+**NOTE** IF YOU ARE BEHIND A CORPORATE FIREWALL AND/OR YOUR ORGANIZATION USES SOMETHING LIKE ZSCALER OR NETSKOPE THAT INTERCEPTS HTTPS TRAFFIC AND DOES FUN THINGS WITH CERTIFICATES THIS MIGHT FAIL.
+
+Tell Claude Code (or kiro or whatever terminal coding agent you're using) to parse all the documents in this repository. It should be able to boot up PatchFox. 
+
+
+## GET THINGS GOING MANUALLY
 
 ### START THE PIPELINE 
 **NOTE** IF YOU ARE BEHIND A CORPORATE FIREWALL AND/OR YOUR ORGANIZATION USES SOMETHING LIKE ZSCALER OR NETSKOPE THAT INTERCEPTS HTTPS TRAFFIC AND DOES FUN THINGS WITH CERTIFICATES THIS MIGHT FAIL.
@@ -101,8 +107,8 @@ This will bootstrap the pipeline - sans the GenAI interface.
 ### GET SAMPLE DATA INTO PATCHFOX
 PatchFox provides database dumps of already-processed sample data sourced from public github organizations (eg github.com/reddit, github.com/ibm, etc). 
 
-1. download the [dump](https://drive.google.com/file/d/1wj1dwPAazBwbt5-tKFcIilgfK3qMRCQw/view?usp=drive_link)
-2. use the following command to copy the dump file into the PatchFox Postgres container
+1. download the one of the sample [db dumps](https://drive.google.com/drive/folders/14rYDt4g-fMoSE2dEBx0cPwYlppTES076?usp=drive_link)
+2. use the following command to copy the dump file into the PatchFox Postgres container. If you chose a different dump file, replace the filename with the name of the dump you chose. 
 ```
 docker cp ./reddit_github_recommended_25NOV25.sql.gz docker-compose-postgres-1:/
 ```
@@ -132,20 +138,6 @@ At this point you should have data loaded into PatchFox. To verify you can:
   * host: localhost
   * port: 54321
 
-### DO STUFF WITH PATCHFOX 
-Beyond accessing data by way of the database directly or the data-service, PatchFox also has a genAI interface. To use that interface we'll need to do a few things:
-
-1. in the patch-ai directory, open up file `slack_shit.txt` in your favorite editor 
-
-2. For whatever model you intend to use you'll need to ensure the appropriate API key is specified in this file. 
-
-3. execute `source slack_shit.txt` to ensure all the necessary env vars are loaded 
-
-4. after ensuring first that you've activate the python venv you created earlier, execute the `slackbot.py` file. 
-
-5. in a new terminal, and again ensuring first to activate the python venv, execute the `console_chat.py` file. This terminal will be your genAI 
-interface into PatchFox. 
-
 
 ### GET -->YOUR<-- DATA INTO PATCHFOX 
 In the etl-root project there are several scripts designed to help you load data on your workstation into PatchFox. 
@@ -169,6 +161,21 @@ We have a [ci-cd component](https://hub.docker.com/r/patchfoxio/patchfox-etl) fo
 Quite a lot. The limitation on pipeline processing beyond available compute is time. The `analyze-service` needs to process records in ASC order by commitDateTime and thus can't be parallelized. The current implementation of PF runs efficiently per record. That being said, When the dataset contains hundreds of thousands of packages and tens of thousands of findings, it can take ~2.5m for analyze to process each record. 
 
 That being said - PatchFox need only process a small subset of the data that gets uploaded in order to provide value. It's entirely possible tens of thousands of datasource_event's are uploaded to PatchFox but only a few hundred need to be processed. In fact, often only the HEAD events (the most recent commit to a datasource) is all you need. Interally we use [this sql script](https://github.com/patchfox-io/etl-root/blob/main/sql/fetch_n_months_of_dse_history.sql) to mark events we want to process prior to allowing the orchestrate service to start a job. In this way we're able to process a sample of the data and reduce total processing time by a gazillion. 
+
+
+### A WORD ABOUT THE SLACK/CUSTOM GEN-AI INTERFACE
+Beyond accessing data by way of the database directly or the data-service, PatchFox also has a genAI interface. That service is what we use to plumb genAI models into slack. It also can be used in "console" mode in case you don't want to use Claude Code/Kiro/etc. To use that interface we'll need to do a few things:
+
+1. in the patch-ai directory, open up file `slack_shit.txt` in your favorite editor 
+
+2. For whatever model you intend to use you'll need to ensure the appropriate API key is specified in this file. 
+
+3. execute `source slack_shit.txt` to ensure all the necessary env vars are loaded 
+
+4. after ensuring first that you've activate the python venv you created earlier, execute the `slackbot.py` file. 
+
+5. in a new terminal, and again ensuring first to activate the python venv, execute the `console_chat.py` file. This terminal will be your genAI 
+interface into PatchFox. 
 
 
 ### OTHER HELPFUL DOCS 
