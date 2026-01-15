@@ -31,8 +31,10 @@ PatchFox on the backend is a flotilla of microservices and custom libraries that
 
 
 ##### CLONE THESE FIRST - THEY DON'T NEED TO BE COMPILED 
+* [GET_STARTED](https://github.com/patchfox-io/GET_STARTED/tree/main)
+  * this repo is the docs repo you'll use to seed claude or kiro of whatever agent you're using with all it needs to make the PatchFox awesome happen. 
 * [patch-ai](https://github.com/patchfox-io/patch-ai-service)
-  * enables genAI user interface to PatchFox
+  * enables genAI/slack user interface to PatchFox
 * [docker-compose](https://github.com/patchfox-io/docker-compose)
   * configures and orchestrates pipeline start and stop
 * [etl-root](https://github.com/patchfox-io/etl-root)
@@ -87,7 +89,7 @@ pip install -e .
 ## GET THINGS GOING WITH GENAI 
 **NOTE** IF YOU ARE BEHIND A CORPORATE FIREWALL AND/OR YOUR ORGANIZATION USES SOMETHING LIKE ZSCALER OR NETSKOPE THAT INTERCEPTS HTTPS TRAFFIC AND DOES FUN THINGS WITH CERTIFICATES THIS MIGHT FAIL.
 
-Tell Claude Code (or kiro or whatever terminal coding agent you're using) to parse all the documents in this repository. It should be able to boot up PatchFox. 
+Tell Claude Code (or kiro or whatever terminal coding agent you're using) to parse all the documents in this repository (which should now be cloned on your workstation). It should be able to boot up PatchFox. 
 
 
 ## GET THINGS GOING MANUALLY
