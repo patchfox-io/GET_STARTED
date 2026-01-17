@@ -96,9 +96,14 @@ There are many times when the question being asked is tied in with a given Datas
 /api/v1/db/datasetMetrics/packageType/query
 ```
 
-**find packages associated with a set of datasources that are associated with a given dataset.** 
+**find packages associated with a set of datasources that are associated with a given dataset.**
 ```http
 /api/v1/db/datasetMetrics/datasource/package/query?datasetName=reddit&isCurrent=true&datasources.purl=go__src&commitDateTime=gt.1999-12-29T00:24:26Z
+```
+
+**find packages associated with ALL datasources in a given dataset using wildcard.**
+```http
+/api/v1/db/datasetMetrics/datasource/package/query?datasetName=reddit&isCurrent=true&datasources.purl=*
 ```
 
 ### findings
@@ -108,9 +113,14 @@ There are many times when the question being asked is tied in with a given Datas
 /api/v1/db/datasetMetrics/package/findingType/query
 ```
 
-**find findings associated wtih a set of datasources that are associated with a given dataset**
+**find finding types associated wtih a set of datasources that are associated with a given dataset**
 ```http
-/api/v1/db/datasetMetrics/datasource/package/finding/query
+/api/v1/db/datasetMetrics/datasource/package/findingType/query?datasetName=ibm&isCurrent=true&datasources.purl=some_datasource_name
+```
+
+**find finding types associated with ALL datasources in a given dataset using wildcard.**
+```http
+/api/v1/db/datasetMetrics/datasource/package/findingType/query?datasetName=ibm&isCurrent=true&datasources.purl=*
 ```
 
 ### edits
@@ -134,6 +144,7 @@ Every one of these takes a small set of query string arguments intended for a Da
   * multiple names ex `datasetName=foo,bar`
 * __datasources.purl__ (required for datasetMetrics/datasource queries)
   * comma delimited list of datasource names (or full purls) used to scope the query to only datasources in the dataset that match the provided datasource names.
+  * use `*` as a wildcard to include ALL datasources in the dataset (ex: `datasources.purl=*`)
 * __commitDateTime__ (optional)
   * the specific commitDateTime(s) you want records for. If not supplied you will get the latest record 
   * single date exact ex `commitDateTime=2025-04-09T01:08:40.648Z`
