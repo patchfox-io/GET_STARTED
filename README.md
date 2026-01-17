@@ -155,6 +155,22 @@ In the etl-root project there are several scripts designed to help you load data
 run_local.sh {DIRECTORY THAT CONTAINS GIT REPOS}
 ```
 
+6. After your data has been ingested, you need to activate peristalsis (the scheduled job processor) to start processing. By default, peristalsis is OFF. To turn it on, make a POST request to the orchestrate-service:
+
+```
+curl -X POST "http://localhost:1703/api/v1/peristalsis?activated=true"
+```
+
+To check the current state of peristalsis:
+```
+curl http://localhost:1703/api/v1/peristalsis
+```
+
+To turn it off:
+```
+curl -X POST "http://localhost:1703/api/v1/peristalsis?activated=false"
+```
+
 ### GET -->YOUR<-- DATA INTO PATCHFOX BY WAY OF CI/CD 
 We have a [ci-cd component](https://hub.docker.com/r/patchfoxio/patchfox-etl) for that! Reach out to us to get the necessary env vars. 
 
@@ -180,7 +196,21 @@ Beyond accessing data by way of the database directly or the data-service, Patch
 interface into PatchFox. 
 
 
-### OTHER HELPFUL DOCS 
+### SWAGGER API DOCUMENTATION
+All "turbo" microservices (input-service, orchestrate-service, grype-service, package-index-service, analyze-service, data-service) expose interactive Swagger API documentation at:
+
+```
+{SERVICE_URL}/swagger-ui.html
+```
+
+For example:
+* data-service: http://localhost:1702/swagger-ui.html
+* orchestrate-service: http://localhost:1703/swagger-ui.html
+* input-service: http://localhost:1701/swagger-ui.html
+
+These docs describe all available endpoints, request/response formats, and allow you to test API calls directly from the browser.
+
+### OTHER HELPFUL DOCS
 
 * [data-service api guide](reference/data_service_api.md)
 * [db entities](reference/entities/entities.md)
