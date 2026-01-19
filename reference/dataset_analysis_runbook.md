@@ -1118,6 +1118,425 @@ Common patterns:
 - Likely: Technical debt, stuck on old versions
 - Fix: Emergency remediation, dependency modernization
 
+### STEP 12: Generate Report
+
+**12.1 Report Generation Script**
+
+This final step ties all analysis together and produces both terminal highlights and a full markdown report.
+
+```python
+from datetime import date, datetime
+import json
+
+def generate_report(dataset_name, metrics, edits, findings, composition, family_analysis):
+    """
+    Generate terminal summary and full markdown report.
+
+    Args:
+        dataset_name: Name of the dataset
+        metrics: List of datasetMetrics records (sorted by commitDateTime)
+        edits: List of edit records
+        findings: List of findingData records
+        composition: Dict from Step 2 composition analysis {type: {count, packages, findings, critical, high}}
+        family_analysis: List of dicts from Step 8 [{family_key, findings, clean_versions, ...}]
+    """
+
+    # === CALCULATE ALL METRICS ===
+
+    # PES
+    avg_pes = sum(m['patchEfficacyScore'] for m in metrics) / len(metrics)
+    latest_pes = metrics[-1]['patchEfficacyScore']
+    positive_pes_pct = sum(1 for m in metrics if m['patchEfficacyScore'] > 0) / len(metrics) * 100
+
+    # RPS
+    rps_start = metrics[0]['rpsScore']
+    rps_end = metrics[-1]['rpsScore']
+    rps_trend = "Decreasing" if rps_end < rps_start else "Increasing" if rps_end > rps_start else "Stable"
+
+    # Findings
+    findings_start = metrics[0]['totalFindings']
+    findings_end = metrics[-1]['totalFindings']
+    findings_change = findings_end - findings_start
+    findings_trend = "Decreasing" if findings_change < 0 else "Increasing" if findings_change > 0 else "Stable"
+
+    # Backlog
+    latest = metrics[-1]
+    backlog_30_60 = latest.get('findingsInBacklogBetweenThirtyAndSixtyDays', 0)
+    backlog_60_90 = latest.get('findingsInBacklogBetweenSixtyAndNinetyDays', 0)
+    backlog_90_plus = latest.get('findingsInBacklogOverNinetyDays', 0)
+    total_backlog = backlog_30_60 + backlog_60_90 + backlog_90_plus
+    pct_90_plus = (backlog_90_plus / total_backlog * 100) if total_backlog > 0 else 0
+
+    # Edit efficiency
+    same_edits = sum(1 for e in edits if e.get('sameEdit', False))
+    same_edit_pct = (same_edits / len(edits) * 100) if edits else 0
+
+    # Severity breakdown
+    critical = latest.get('criticalFindings', 0)
+    high = latest.get('highFindings', 0)
+    medium = latest.get('mediumFindings', 0)
+    low = latest.get('lowFindings', 0)
+
+    # === CALCULATE GRADES ===
+
+    def grade_pes(avg):
+        if avg > 1: return 'A'
+        if avg > 0: return 'B'
+        if avg > -1: return 'C'
+        if avg > -2: return 'D'
+        return 'F'
+
+    def grade_findings(trend, change_pct):
+        if trend == "Decreasing": return 'A'
+        if trend == "Stable": return 'C'
+        if change_pct < 20: return 'C'
+        if change_pct < 50: return 'D'
+        return 'F'
+
+    def grade_backlog(pct_90):
+        if pct_90 < 30: return 'A'
+        if pct_90 < 50: return 'C'
+        if pct_90 < 70: return 'D'
+        return 'F'
+
+    def grade_rps(trend):
+        if trend == "Decreasing": return 'A'
+        if trend == "Stable": return 'C'
+        return 'F'
+
+    def grade_edits(same_pct):
+        if same_pct < 30: return 'A'
+        if same_pct < 50: return 'C'
+        if same_pct < 66: return 'D'
+        return 'F'
+
+    findings_change_pct = abs(findings_change / findings_start * 100) if findings_start > 0 else 0
+
+    grades = {
+        'pes': grade_pes(avg_pes),
+        'findings': grade_findings(findings_trend, findings_change_pct),
+        'backlog': grade_backlog(pct_90_plus),
+        'rps': grade_rps(rps_trend),
+        'edits': grade_edits(same_edit_pct)
+    }
+
+    # Weighted overall grade
+    grade_values = {'A': 4, 'B': 3, 'C': 2, 'D': 1, 'F': 0}
+    weighted_score = (
+        grade_values[grades['pes']] * 0.30 +
+        grade_values[grades['findings']] * 0.25 +
+        grade_values[grades['backlog']] * 0.20 +
+        grade_values[grades['rps']] * 0.15 +
+        grade_values[grades['edits']] * 0.10
+    )
+
+    if weighted_score >= 3.5: overall_grade = 'A'
+    elif weighted_score >= 2.5: overall_grade = 'B'
+    elif weighted_score >= 1.5: overall_grade = 'C'
+    elif weighted_score >= 0.5: overall_grade = 'D'
+    else: overall_grade = 'F'
+
+    # === IDENTIFY CRITICAL ISSUES ===
+
+    critical_issues = []
+    if grades['pes'] in ['D', 'F']:
+        critical_issues.append(f"PES is negative ({avg_pes:.2f}) - patches making things worse")
+    if grades['backlog'] == 'F':
+        critical_issues.append(f"Backlog critical: {pct_90_plus:.0f}% of findings are 90+ days old")
+    if critical > 0:
+        critical_issues.append(f"{critical} CRITICAL severity CVEs present")
+    if grades['findings'] == 'F':
+        critical_issues.append(f"Findings increased {findings_change_pct:.0f}% - accumulating debt")
+
+    # === TOP RECOMMENDATIONS ===
+
+    recommendations = []
+    if family_analysis:
+        top_family = max(family_analysis, key=lambda x: x.get('total_finding_instances', 0))
+        if top_family.get('total_finding_instances', 0) > 10:
+            recommendations.append(f"Consolidate {top_family['family_key']} - eliminates {top_family['total_finding_instances']} CVE instances")
+    if grades['backlog'] in ['D', 'F']:
+        recommendations.append("Prioritize remediation of 90+ day backlog items")
+    if grades['pes'] in ['D', 'F']:
+        recommendations.append("Target patches at vulnerable packages, not just version bumps")
+    if rps_trend == "Increasing":
+        recommendations.append("Implement version pinning to reduce fragmentation")
+
+    # === TERMINAL OUTPUT ===
+
+    print()
+    print("=" * 70)
+    print(f"  PATCHFOX SECURITY ANALYSIS: {dataset_name}")
+    print(f"  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 70)
+    print()
+    print(f"  OVERALL GRADE: {overall_grade}")
+    print()
+    print(f"  PES: {avg_pes:.2f} (Grade: {grades['pes']})  |  RPS: {rps_end:.1f} ({rps_trend}, Grade: {grades['rps']})")
+    print(f"  Findings: {findings_end} ({findings_trend} {abs(findings_change):+d}, Grade: {grades['findings']})")
+    print(f"  Backlog: {total_backlog:.0f} total, {pct_90_plus:.0f}% in 90+d (Grade: {grades['backlog']})")
+    print(f"  Edit Efficiency: {100-same_edit_pct:.0f}% different-version (Grade: {grades['edits']})")
+    print()
+
+    if critical_issues:
+        print("  CRITICAL ISSUES:")
+        for issue in critical_issues:
+            print(f"    ⚠ {issue}")
+        print()
+
+    if recommendations:
+        print("  TOP RECOMMENDATIONS:")
+        for i, rec in enumerate(recommendations[:5], 1):
+            print(f"    {i}. {rec}")
+        print()
+
+    print("=" * 70)
+
+    # === MARKDOWN REPORT ===
+
+    report_date = date.today().isoformat()
+    report_path = f"/tmp/{dataset_name}_analysis_{report_date}.md"
+
+    # Build composition table
+    comp_table = "| Type | Datasources | Packages | Findings | Critical | High |\n"
+    comp_table += "|------|-------------|----------|----------|----------|------|\n"
+    for pkg_type, stats in sorted(composition.items(), key=lambda x: x[1]['findings'], reverse=True):
+        comp_table += f"| {pkg_type} | {stats['count']} | {stats['packages']} | {stats['findings']} | {stats['critical']} | {stats['high']} |\n"
+
+    # Build family remediation table
+    family_table = ""
+    if family_analysis:
+        family_table = "| Package Family | CVE Instances | Versions | Vulnerable | Clean |\n"
+        family_table += "|----------------|---------------|----------|------------|-------|\n"
+        for fam in sorted(family_analysis, key=lambda x: x.get('total_finding_instances', 0), reverse=True)[:15]:
+            family_table += f"| {fam.get('family_key', 'N/A')} | {fam.get('total_finding_instances', 0)} | {fam.get('total_family_members', 0)} | {fam.get('family_members_with_findings', 0)} | {fam.get('family_members_without_findings', 0)} |\n"
+
+    report_content = f"""# PatchFox Security Analysis Report
+
+**Dataset:** {dataset_name}
+**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+**Analysis Period:** {metrics[0]['commitDateTime'][:10]} to {metrics[-1]['commitDateTime'][:10]}
+
+---
+
+## Executive Summary
+
+**Overall Grade: {overall_grade}**
+
+This dataset has a Patch Efficacy Score (PES) of **{avg_pes:.2f}**, indicating {"effective patching that improves security posture" if avg_pes > 0 else "patches that are not effectively improving security"}.
+The vulnerability backlog shows **{pct_90_plus:.0f}%** of findings aged 90+ days, {"indicating active remediation" if pct_90_plus < 30 else "indicating remediation lag"}.
+{"Key concerns include: " + "; ".join(critical_issues[:3]) + "." if critical_issues else "No critical issues identified."}
+
+---
+
+## Part 1: Dataset Composition
+
+{comp_table}
+
+**Analysis Period:** {len(metrics)} snapshots analyzed
+
+---
+
+## Part 2: Patch Efficacy (PES)
+
+| Metric | Value | Grade |
+|--------|-------|-------|
+| Average PES | {avg_pes:.2f} | {grades['pes']} |
+| Latest PES | {latest_pes:.2f} | - |
+| Positive PES % | {positive_pes_pct:.1f}% | - |
+| Average Impact | {sum(m['patchImpact'] for m in metrics) / len(metrics):.2f} | - |
+| Average Effort | {sum(m['patchEffort'] for m in metrics) / len(metrics):.2f} | - |
+
+**Interpretation:** {"Patches are effectively reducing vulnerabilities and complexity." if avg_pes > 1 else "Patches are having neutral to negative security impact." if avg_pes < 0 else "Patches are having modest positive impact."}
+
+---
+
+## Part 3: Findings & Backlog
+
+### Current Severity Breakdown
+
+| Severity | Count |
+|----------|-------|
+| CRITICAL | {critical} |
+| HIGH | {high} |
+| MEDIUM | {medium} |
+| LOW | {low} |
+| **TOTAL** | **{findings_end}** |
+
+### Findings Trend
+
+- **Start:** {findings_start} findings
+- **End:** {findings_end} findings
+- **Change:** {findings_change:+d} ({findings_change_pct:.1f}%)
+- **Trend:** {findings_trend}
+- **Grade:** {grades['findings']}
+
+### Backlog Aging
+
+| Bucket | Count | Percentage |
+|--------|-------|------------|
+| 30-60 days | {backlog_30_60:.0f} | {(backlog_30_60/total_backlog*100) if total_backlog > 0 else 0:.1f}% |
+| 60-90 days | {backlog_60_90:.0f} | {(backlog_60_90/total_backlog*100) if total_backlog > 0 else 0:.1f}% |
+| 90+ days | {backlog_90_plus:.0f} | {pct_90_plus:.1f}% |
+| **Total** | **{total_backlog:.0f}** | 100% |
+
+**Grade:** {grades['backlog']}
+
+---
+
+## Part 4: Version Fragmentation (RPS)
+
+| Metric | Value |
+|--------|-------|
+| Starting RPS | {rps_start:.1f} |
+| Ending RPS | {rps_end:.1f} |
+| Change | {rps_end - rps_start:+.1f} |
+| Trend | {rps_trend} |
+| Grade | {grades['rps']} |
+
+**Interpretation:** {"Version consolidation is improving - fewer duplicate package versions." if rps_trend == "Decreasing" else "Version fragmentation is increasing - more duplicate package versions across the codebase."}
+
+---
+
+## Part 5: Edit Analysis
+
+| Metric | Value |
+|--------|-------|
+| Total Edits | {len(edits):,} |
+| Same-Version Edits | {same_edits:,} ({same_edit_pct:.1f}%) |
+| Different-Version Edits | {len(edits) - same_edits:,} ({100-same_edit_pct:.1f}%) |
+| Grade | {grades['edits']} |
+
+---
+
+## Part 6: Package Family Remediation Opportunities
+
+{family_table if family_table else "*No multi-version package families with remediation opportunities identified.*"}
+
+{"**Top Opportunity:** " + family_analysis[0]['family_key'] + f" - consolidating to a clean version could eliminate {family_analysis[0].get('total_finding_instances', 0)} CVE instances." if family_analysis and family_analysis[0].get('total_finding_instances', 0) > 0 else ""}
+
+---
+
+## Part 7: Grading Summary
+
+| Category | Weight | Grade | Score |
+|----------|--------|-------|-------|
+| PES | 30% | {grades['pes']} | {grade_values[grades['pes']]} |
+| Findings Trend | 25% | {grades['findings']} | {grade_values[grades['findings']]} |
+| Backlog | 20% | {grades['backlog']} | {grade_values[grades['backlog']]} |
+| RPS Trend | 15% | {grades['rps']} | {grade_values[grades['rps']]} |
+| Edit Efficiency | 10% | {grades['edits']} | {grade_values[grades['edits']]} |
+| **Overall** | 100% | **{overall_grade}** | **{weighted_score:.2f}** |
+
+---
+
+## Part 8: Recommendations
+
+### Critical (0-30 days)
+
+{chr(10).join(f"- {issue}" for issue in critical_issues) if critical_issues else "- No critical issues requiring immediate action"}
+
+### High Priority (30-90 days)
+
+{chr(10).join(f"- {rec}" for rec in recommendations) if recommendations else "- Continue current practices"}
+
+### Medium Priority (90-180 days)
+
+- Review and update dependency policies
+- Implement automated vulnerability scanning in CI/CD
+- Establish version pinning standards
+
+---
+
+## Conclusion
+
+{"This dataset demonstrates **effective security practices** with positive patch efficacy and controlled vulnerability growth." if overall_grade in ['A', 'B'] else "This dataset shows **areas for improvement** in patch targeting and remediation velocity." if overall_grade == 'C' else "This dataset has **significant security concerns** that require immediate attention and process changes."}
+
+**Bottom Line:** Grade **{overall_grade}** - {
+    "Excellent security posture, maintain current practices" if overall_grade == 'A' else
+    "Good security posture with minor improvements needed" if overall_grade == 'B' else
+    "Acceptable but needs focused improvement" if overall_grade == 'C' else
+    "Poor security posture, significant changes required" if overall_grade == 'D' else
+    "Critical security failure, emergency intervention needed"
+}
+
+---
+
+*Report generated by PatchFox Dataset Analysis Runbook v1.0*
+"""
+
+    with open(report_path, 'w') as f:
+        f.write(report_content)
+
+    print(f"  Full report written to: {report_path}")
+    print()
+
+    return report_path, overall_grade, grades
+```
+
+**12.2 Usage Example**
+
+```python
+# After completing Steps 1-11, call generate_report with collected data:
+
+# Fetch all required data
+metrics = fetch_metrics()  # From Step 1
+metrics.sort(key=lambda x: x['commitDateTime'])
+
+edits = fetch_edits()  # From Step 1
+findings = fetch_findings()  # From Step 1
+
+# Build composition dict from Step 2
+composition = {}  # {type: {count, packages, findings, critical, high}}
+# ... populate from datasourceMetricsCurrent analysis
+
+# Build family analysis from Step 8
+family_analysis = []  # [{family_key, total_finding_instances, ...}]
+# ... populate from SQL query results
+
+# Generate report
+report_path, grade, grades = generate_report(
+    dataset_name="MyDataset",
+    metrics=metrics,
+    edits=edits,
+    findings=findings,
+    composition=composition,
+    family_analysis=family_analysis
+)
+
+print(f"Analysis complete. Grade: {grade}")
+```
+
+**12.3 Sample Terminal Output**
+
+```
+======================================================================
+  PATCHFOX SECURITY ANALYSIS: nationalsecurityagency
+  Generated: 2026-01-19 10:30:45
+======================================================================
+
+  OVERALL GRADE: C
+
+  PES: -0.42 (Grade: C)  |  RPS: 12.3 (Increasing, Grade: F)
+  Findings: 111 (Increasing +43, Grade: D)
+  Backlog: 89 total, 72% in 90+d (Grade: D)
+  Edit Efficiency: 34% different-version (Grade: D)
+
+  CRITICAL ISSUES:
+    ⚠ Backlog critical: 72% of findings are 90+ days old
+    ⚠ 3 CRITICAL severity CVEs present
+    ⚠ Findings increased 63% - accumulating debt
+
+  TOP RECOMMENDATIONS:
+    1. Consolidate com.fasterxml.jackson.core/jackson-databind - eliminates 47 CVE instances
+    2. Prioritize remediation of 90+ day backlog items
+    3. Target patches at vulnerable packages, not just version bumps
+    4. Implement version pinning to reduce fragmentation
+
+======================================================================
+  Full report written to: /tmp/nationalsecurityagency_analysis_2026-01-19.md
+```
+
 ---
 
 ## 6. Common Pitfalls
