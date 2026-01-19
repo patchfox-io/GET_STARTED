@@ -155,7 +155,7 @@ In the etl-root project there are several scripts designed to help you load data
 run_local.sh {DIRECTORY THAT CONTAINS GIT REPOS}
 ```
 
-6. After your data has been ingested, you need to activate peristalsis (the scheduled job processor) to start processing. By default, peristalsis is OFF. To turn it on, make a POST request to the orchestrate-service:
+6. After your data has been ingested, you need to activate peristalsis (the scheduled job processor) to start processing. By default, peristalsis is OFF. To turn it on, make a POST request to the orchestrate-service (note that host/port number might be different on your machine):
 
 ```
 curl -X POST "http://localhost:1703/api/v1/peristalsis?activated=true"
@@ -173,6 +173,10 @@ curl -X POST "http://localhost:1703/api/v1/peristalsis?activated=false"
 
 ### GET -->YOUR<-- DATA INTO PATCHFOX BY WAY OF CI/CD 
 We have a [ci-cd component](https://hub.docker.com/r/patchfoxio/patchfox-etl) for that! Reach out to us to get the necessary env vars. 
+
+
+### ANALYZE YOUR DATA 
+PatchFox provides a standard runbook for top level analysis. You can point the agent to the [runbook](reference/dataset_analysis_runbook.md) and Patch will run the analysis, provide an executive summary to the terminal, and serialize a markdown report with the full findings to your filesystem. 
 
 
 ### HOW MUCH DATA CAN I PUT INTO PATCHFOX? 

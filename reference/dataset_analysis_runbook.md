@@ -16,6 +16,9 @@ This runbook provides a systematic methodology for analyzing the security postur
 6. [Common Pitfalls](#6-common-pitfalls)
 7. [Interpretation Guidelines](#7-interpretation-guidelines)
 8. [Report Structure Template](#8-report-structure-template)
+9. [Example Analysis Script](#9-example-analysis-script)
+10. [Checklist](#10-checklist)
+11. [Appendix: Quick Reference](#appendix-quick-reference)
 
 ---
 
@@ -269,9 +272,74 @@ curl -s "http://localhost:1702/api/v1/db/datasetMetrics/edit/query?datasetName={
 curl -s "http://localhost:1702/api/v1/db/findingData/query?size=500" -o /tmp/findings.json
 ```
 
-### STEP 2: PES Analysis
+### STEP 2: Dataset Composition Analysis
 
-**2.1 Calculate PES Statistics**
+**2.1 Fetch Datasource Metrics**
+```bash
+curl -s "http://localhost:1702/api/v1/db/datasourceMetricsCurrent/query?size=1000" -o /tmp/dmc.json
+```
+
+**2.2 Analyze Composition by Type**
+
+```python
+import json
+from collections import defaultdict
+
+with open('/tmp/dmc.json') as f:
+    data = json.load(f)
+
+records = data['data']['titlePage']['content']
+print(f"Total datasources: {len(records)}\n")
+
+# Extract type from purl (last segment after @)
+by_type = defaultdict(lambda: {'count': 0, 'packages': 0, 'findings': 0, 'critical': 0, 'high': 0})
+
+for r in records:
+    purl = r.get('purl', '')
+    ds_type = purl.split('@')[-1] if '@' in purl else 'unknown'
+
+    by_type[ds_type]['count'] += 1
+    by_type[ds_type]['packages'] += r.get('packages', 0)
+    by_type[ds_type]['findings'] += r.get('totalFindings', 0)
+    by_type[ds_type]['critical'] += r.get('criticalFindings', 0)
+    by_type[ds_type]['high'] += r.get('highFindings', 0)
+
+# Calculate totals
+total_ds = sum(v['count'] for v in by_type.values())
+total_pkg = sum(v['packages'] for v in by_type.values())
+total_findings = sum(v['findings'] for v in by_type.values())
+
+print(f"{'Type':<12} {'DS Count':>10} {'DS %':>8} {'Packages':>10} {'Pkg %':>8} {'Findings':>10} {'Find %':>8}")
+print("-" * 80)
+
+for ds_type in sorted(by_type.keys(), key=lambda x: by_type[x]['findings'], reverse=True):
+    v = by_type[ds_type]
+    ds_pct = v['count'] / total_ds * 100 if total_ds else 0
+    pkg_pct = v['packages'] / total_pkg * 100 if total_pkg else 0
+    find_pct = v['findings'] / total_findings * 100 if total_findings else 0
+    print(f"{ds_type:<12} {v['count']:>10,} {ds_pct:>7.1f}% {v['packages']:>10,} {pkg_pct:>7.1f}% {v['findings']:>10,} {find_pct:>7.1f}%")
+```
+
+**2.3 Interpret Composition**
+
+Look for disproportionate relationships:
+
+| Pattern | Meaning |
+|---------|---------|
+| Type has X% datasources but Y% packages (Y >> X) | Heavy dependency footprint per project (e.g., npm) |
+| Type has X% packages but Y% findings (Y >> X) | Higher vulnerability density (riskier ecosystem) |
+| Type has X% findings but Y% critical+high (Y >> X) | More severe vulnerabilities in that ecosystem |
+
+**Red Flags:**
+- One type dominates findings despite small datasource count → concentrated risk
+- High finding % with low package % → vulnerable ecosystem, prioritize remediation
+- Ecosystem with disproportionate critical+high → urgent attention needed
+
+**Example Insight:** "npm is only 1.6% of datasources but 17% of packages - each npm project brings 10x more dependencies. pypi has 6x the vulnerability density of the dataset average."
+
+### STEP 3: PES Analysis
+
+**3.1 Calculate PES Statistics**
 
 From `/tmp/metrics.json`:
 ```python
@@ -300,7 +368,7 @@ print(f"Positive: {positive}/{len(metrics)} ({positive/len(metrics)*100:.1f}%)")
 print(f"Negative: {negative}/{len(metrics)} ({negative/len(metrics)*100:.1f}%)")
 ```
 
-**2.2 Identify PES Trends**
+**3.2 Identify PES Trends**
 
 Track over time:
 ```python
@@ -308,16 +376,16 @@ for m in metrics:
     print(f"{m['commitDateTime'][:10]}: PES={m['patchEfficacyScore']:.2f}, Impact={m['patchImpact']:.2f}, Effort={m['patchEffort']:.2f}")
 ```
 
-**2.3 Grade PES Performance**
+**3.3 Grade PES Performance**
 - Average PES > 1: A (Excellent)
 - Average PES 0 to 1: B (Good)
 - Average PES -1 to 0: C (Acceptable)
 - Average PES -2 to -1: D (Poor)
 - Average PES < -2: F (Failing)
 
-### STEP 3: RPS Analysis
+### STEP 4: RPS Analysis
 
-**3.1 Calculate RPS Trend**
+**4.1 Calculate RPS Trend**
 
 ```python
 rps_values = [(m['commitDateTime'][:10], m['rpsScore']) for m in metrics]
@@ -328,14 +396,14 @@ print(f"RPS Latest: {rps_sorted[-1]}")
 print(f"RPS Change: {rps_sorted[-1][1] - rps_sorted[0][1]:.2f}")
 ```
 
-**3.2 Interpret RPS**
+**4.2 Interpret RPS**
 - Decreasing RPS: ✓ Good (consolidating versions)
 - Stable RPS: ○ Neutral
 - Increasing RPS: ✗ Bad (fragmenting versions)
 
-### STEP 4: Findings Analysis
+### STEP 5: Findings Analysis
 
-**4.1 Calculate Findings Trend**
+**5.1 Calculate Findings Trend**
 
 ```python
 findings_data = [(m['commitDateTime'][:10], m['totalFindings'], m['packages']) for m in metrics]
@@ -351,7 +419,7 @@ change = findings_sorted[-1][1] - findings_sorted[0][1]
 print(f"\nFindings Change: {change:+d} ({(change/findings_sorted[0][1]*100):.1f}%)")
 ```
 
-**4.2 Severity Breakdown**
+**5.2 Severity Breakdown**
 
 ```python
 latest = metrics[-1]
@@ -363,14 +431,14 @@ print(f"  LOW: {latest['lowFindings']}")
 print(f"  TOTAL: {latest['totalFindings']}")
 ```
 
-**4.3 Interpret Findings Trend**
+**5.3 Interpret Findings Trend**
 - Decreasing findings: ✓ Good (effective remediation)
 - Stable findings: ○ Neutral (treading water)
 - Increasing findings: ✗ Bad (accumulating debt)
 
-### STEP 5: Backlog Analysis
+### STEP 6: Backlog Analysis
 
-**5.1 Calculate Backlog Distribution**
+**6.1 Calculate Backlog Distribution**
 
 ```python
 for m in metrics[-5:]:  # Last 5 snapshots
@@ -384,15 +452,15 @@ for m in metrics[-5:]:  # Last 5 snapshots
         print(f"{m['commitDateTime'][:10]}: {total_backlog:.0f} backlog ({pct_90_plus:.0f}% in 90+ days)")
 ```
 
-**5.2 Interpret Backlog**
+**6.2 Interpret Backlog**
 - Growing backlog: ✗ Bad (not resolving)
 - Stable backlog: ○ Neutral (treading water)
 - Shrinking backlog: ✓ Good (actively resolving)
 - >70% in 90+ days: ✗ Very bad (old vulnerabilities)
 
-### STEP 6: Edit Type Analysis
+### STEP 7: Edit Type Analysis
 
-**6.1 Count Edit Types**
+**7.1 Count Edit Types**
 
 From `/tmp/edits.json`:
 ```python
@@ -417,7 +485,7 @@ print(f"  Same version: {same_edits:,} ({same_edits/len(edits)*100:.1f}%)")
 print(f"  Different version: {different_edits:,} ({different_edits/len(edits)*100:.1f}%)")
 ```
 
-**6.2 Interpret Edit Types**
+**7.2 Interpret Edit Types**
 
 **Red Flags:**
 - >50% same version edits: Wasting effort
@@ -429,9 +497,509 @@ print(f"  Different version: {different_edits:,} ({different_edits/len(edits)*10
 - CREATE ≈ DELETE (controlled growth)
 - High different version % + positive PES
 
-### STEP 7: CVE Age Analysis
+### STEP 8: Package Family Remediation Analysis
 
-**7.1 Analyze CVE Ages**
+**8.1 Calculate Aggregate Remediation Potential**
+
+First, get the headline number - how many CVE instances could be eliminated by standardizing on package versions you already use elsewhere.
+
+Run directly against the database:
+```sql
+-- Aggregate: How many findings could be eliminated via version consolidation?
+WITH the_latest_metric AS (
+    SELECT package_indexes
+    FROM public.dataset_metrics
+    WHERE is_current = true
+    ORDER BY commit_date_time DESC
+    LIMIT 1
+),
+latest_packages AS (
+    SELECT p.id, p.name, p.namespace, p.version,
+           COALESCE(p.namespace, '') || '/' || p.name AS family_key
+    FROM public.package p, the_latest_metric m
+    WHERE p.id = ANY(m.package_indexes)
+),
+package_families AS (
+    SELECT family_key, COUNT(*) AS family_size
+    FROM latest_packages
+    GROUP BY family_key
+    HAVING COUNT(*) > 1
+),
+packages_in_multi_member_families AS (
+    SELECT lp.*
+    FROM latest_packages lp
+    JOIN package_families pf ON lp.family_key = pf.family_key
+),
+findings_with_patched_versions AS (
+    SELECT pf.finding_id, pmf.family_key
+    FROM public.package_finding pf
+    JOIN packages_in_multi_member_families pmf ON pf.package_id = pmf.id
+    JOIN package_families fam ON pmf.family_key = fam.family_key
+    GROUP BY pf.finding_id, pmf.family_key, fam.family_size
+    HAVING COUNT(DISTINCT pf.package_id) < fam.family_size
+)
+SELECT
+    COUNT(pf.finding_id) AS total_finding_instances_in_families,
+    COUNT(fpv.finding_id) AS instances_with_patched_versions_in_family,
+    ROUND(COUNT(fpv.finding_id)::numeric / NULLIF(COUNT(pf.finding_id), 0) * 100, 1) AS pct_eliminable
+FROM public.package_finding pf
+JOIN packages_in_multi_member_families pmf ON pf.package_id = pmf.id
+LEFT JOIN findings_with_patched_versions fpv
+    ON pf.finding_id = fpv.finding_id
+    AND pmf.family_key = fpv.family_key;
+```
+
+**Interpret Results:**
+- `total_finding_instances_in_families`: CVEs in packages with version fragmentation
+- `instances_with_patched_versions_in_family`: CVEs eliminable via consolidation
+- `pct_eliminable`: Percentage of findings that are "low-hanging fruit"
+
+**Example:** "847 CVE instances exist in fragmented packages. 612 (72%) could be eliminated by standardizing on versions already in use elsewhere."
+
+**8.2 Identify Specific Consolidation Opportunities**
+
+Now get the detailed breakdown - which specific package families offer the best opportunities.
+
+Run directly against the database:
+```sql
+-- Find package families with remediation opportunities
+WITH the_latest_metric AS (
+    SELECT package_indexes
+    FROM public.dataset_metrics
+    WHERE is_current = true
+    ORDER BY commit_date_time DESC
+    LIMIT 1
+),
+latest_packages AS (
+    SELECT p.id, p.name, p.namespace, p.version,
+           COALESCE(p.namespace, '') || '/' || p.name AS family_key
+    FROM public.package p
+    INNER JOIN the_latest_metric m ON p.id = ANY(m.package_indexes)
+),
+package_families AS (
+    SELECT family_key, COUNT(*) AS family_size
+    FROM latest_packages
+    GROUP BY family_key
+    HAVING COUNT(*) > 1
+),
+packages_in_multi_member_families AS (
+    SELECT lp.*, pf.family_size
+    FROM latest_packages lp
+    JOIN package_families pf ON lp.family_key = pf.family_key
+),
+packages_with_any_findings AS (
+    SELECT DISTINCT package_id
+    FROM public.package_finding
+    WHERE package_id IN (SELECT id FROM packages_in_multi_member_families)
+)
+SELECT
+    pmf.family_key,
+    COUNT(pf.finding_id) AS total_finding_instances,
+    MAX(pmf.family_size) AS total_family_members,
+    COUNT(DISTINCT paf.package_id) AS family_members_with_findings,
+    (MAX(pmf.family_size) - COUNT(DISTINCT paf.package_id)) AS family_members_without_findings
+FROM packages_in_multi_member_families pmf
+LEFT JOIN public.package_finding pf ON pmf.id = pf.package_id
+LEFT JOIN packages_with_any_findings paf ON pmf.id = paf.package_id
+GROUP BY pmf.family_key
+HAVING COUNT(DISTINCT paf.package_id) > 0  -- Only families with at least one vulnerable version
+   AND (MAX(pmf.family_size) - COUNT(DISTINCT paf.package_id)) > 0  -- And at least one clean version
+ORDER BY total_finding_instances DESC
+LIMIT 20;
+```
+
+**8.3 Interpret Results**
+
+| Column | Meaning |
+|--------|---------|
+| `family_key` | Package family (namespace/name) |
+| `total_finding_instances` | Total CVEs across all versions |
+| `total_family_members` | Number of versions in dataset |
+| `family_members_with_findings` | Versions that have vulnerabilities |
+| `family_members_without_findings` | Versions that are clean |
+
+**High-Value Targets:**
+- Families with high `total_finding_instances` AND `family_members_without_findings > 0`
+- These can be consolidated to clean versions, eliminating CVEs AND reducing RPS
+
+**Example Output:**
+```
+family_key                                    | findings | members | vuln | clean
+----------------------------------------------+----------+---------+------+------
+com.fasterxml.jackson.core/jackson-databind   |       47 |       5 |    3 |     2
+org.apache.commons/commons-compress           |       12 |       4 |    2 |     2
+io.netty/netty-codec-http                     |        8 |       3 |    2 |     1
+```
+
+**Interpretation:** jackson-databind has 5 versions in the dataset, 3 with vulnerabilities (47 total findings), and 2 clean versions. Consolidating to one of the clean versions eliminates 47 CVEs and reduces RPS by 4.
+
+**8.4 Grade Remediation Opportunity**
+
+- `pct_eliminable` > 50%: Excellent - majority of fragmented-package CVEs are low-hanging fruit
+- `pct_eliminable` 25-50%: Good - significant consolidation opportunity
+- `pct_eliminable` < 25%: Limited - most CVEs require actual upgrades, not just consolidation
+
+**Detailed breakdown grading:**
+- Many high-value targets (>5 families with 10+ findings): Excellent opportunity, prioritize consolidation
+- Some targets (2-5 families): Good opportunity, include in remediation plan
+- Few targets (<2 families): Limited quick wins, focus on other strategies
+
+**8.5 Generate Actionable Patch Recommendations**
+
+This step transforms the analysis into specific, actionable patch recommendations suitable for JIRA tickets or automated PRs.
+
+**8.5.1 Identify Emergency CVEs**
+
+First, check for "drop everything" vulnerabilities - CRITICAL severity CVEs that need immediate attention.
+
+```bash
+curl -s "http://localhost:1702/api/v1/db/findingData/query?severity=CRITICAL&size=500" -o /tmp/critical_cves.json
+```
+
+```python
+import json
+
+with open('/tmp/critical_cves.json') as f:
+    data = json.load(f)
+
+critical = data['data']['titlePage']['content']
+
+# Known catastrophic CVEs (log4shell, etc.)
+EMERGENCY_CVES = {
+    'CVE-2021-44228': 'Log4Shell - Remote Code Execution',
+    'CVE-2021-45046': 'Log4Shell followup - RCE',
+    'CVE-2021-45105': 'Log4Shell followup - DoS',
+    'CVE-2022-22965': 'Spring4Shell - RCE',
+    'CVE-2021-26855': 'ProxyLogon - RCE',
+    'CVE-2023-44487': 'HTTP/2 Rapid Reset - DoS',
+}
+
+print("=== EMERGENCY CVE CHECK ===\n")
+emergencies = []
+for cve in critical:
+    identifier = cve.get('identifier', '')
+    if identifier in EMERGENCY_CVES:
+        emergencies.append({
+            'cve': identifier,
+            'description': EMERGENCY_CVES[identifier],
+            'detail': cve.get('description', '')
+        })
+
+if emergencies:
+    print("🚨 CRITICAL: EMERGENCY CVEs DETECTED - IMMEDIATE ACTION REQUIRED 🚨\n")
+    for e in emergencies:
+        print(f"  {e['cve']}: {e['description']}")
+        print(f"    {e['detail']}\n")
+else:
+    print("✓ No known emergency CVEs (log4shell, spring4shell, etc.) detected\n")
+
+print(f"Total CRITICAL severity CVEs: {len(critical)}")
+for cve in critical[:10]:
+    print(f"  {cve.get('identifier')}: {cve.get('description', '')[:60]}...")
+```
+
+**8.5.2 Map Packages to Datasources**
+
+Identify which datasources contain vulnerable packages.
+
+```bash
+curl -s "http://localhost:1702/api/v1/db/datasourceMetricsCurrent/query?size=1000" -o /tmp/dmc.json
+```
+
+```python
+import json
+import re
+
+with open('/tmp/dmc.json') as f:
+    dmc_data = json.load(f)
+
+datasources = dmc_data['data']['titlePage']['content']
+
+# Build lookup: package type -> datasources
+ds_by_type = {}
+for ds in datasources:
+    purl = ds.get('purl', '')
+    ds_type = purl.split('@')[-1] if '@' in purl else 'unknown'
+    ds_name = purl.split('/')[2].split('%3A')[0] if '//' not in purl and len(purl.split('/')) > 2 else purl
+
+    if ds_type not in ds_by_type:
+        ds_by_type[ds_type] = []
+    ds_by_type[ds_type].append({
+        'name': ds_name,
+        'purl': purl,
+        'packages': ds.get('packages', 0),
+        'findings': ds.get('totalFindings', 0),
+        'critical': ds.get('criticalFindings', 0)
+    })
+
+print("Datasources by package type:")
+for pkg_type, ds_list in sorted(ds_by_type.items()):
+    print(f"  {pkg_type}: {len(ds_list)} datasources")
+```
+
+**8.5.3 Generate Patch Tickets**
+
+Combine family analysis with datasource mapping to produce actionable recommendations.
+
+```python
+# Assuming you have the family analysis results from 8.2
+# For each high-value family, generate a ticket-ready recommendation
+
+def assess_breaking_risk(from_version, to_version, pkg_name=None, pkg_type=None):
+    """Assess breaking change risk based on semver AND changelog analysis"""
+    import urllib.request
+    import json as json_lib
+
+    risk_factors = []
+    changelog_notes = []
+
+    # 1. Semver analysis
+    try:
+        from_parts = re.split(r'[.\-]', from_version)[:3]
+        to_parts = re.split(r'[.\-]', to_version)[:3]
+
+        from_major = int(re.sub(r'[^\d]', '', from_parts[0])) if from_parts else 0
+        to_major = int(re.sub(r'[^\d]', '', to_parts[0])) if to_parts else 0
+
+        from_minor = int(re.sub(r'[^\d]', '', from_parts[1])) if len(from_parts) > 1 else 0
+        to_minor = int(re.sub(r'[^\d]', '', to_parts[1])) if len(to_parts) > 1 else 0
+
+        if to_major > from_major:
+            semver_risk = "HIGH"
+            risk_factors.append("Major version bump")
+        elif to_minor > from_minor:
+            semver_risk = "MEDIUM"
+            risk_factors.append("Minor version bump")
+        else:
+            semver_risk = "LOW"
+            risk_factors.append("Patch version bump")
+    except:
+        semver_risk = "UNKNOWN"
+        risk_factors.append("Could not parse version numbers")
+
+    # 2. Changelog analysis (where available)
+    if pkg_name and pkg_type:
+        try:
+            changelog_text = ""
+
+            # NPM: Fetch from registry
+            if pkg_type == 'npm':
+                url = f"https://registry.npmjs.org/{pkg_name}/{to_version}"
+                with urllib.request.urlopen(url, timeout=5) as resp:
+                    data = json_lib.loads(resp.read())
+                    # Check for deprecation warnings
+                    if data.get('deprecated'):
+                        risk_factors.append("⚠️ VERSION DEPRECATED")
+                        changelog_notes.append(f"Deprecation: {data['deprecated']}")
+
+            # PyPI: Fetch release info
+            elif pkg_type == 'pypi':
+                url = f"https://pypi.org/pypi/{pkg_name}/{to_version}/json"
+                with urllib.request.urlopen(url, timeout=5) as resp:
+                    data = json_lib.loads(resp.read())
+                    # Check classifiers for stability
+                    classifiers = data.get('info', {}).get('classifiers', [])
+                    for c in classifiers:
+                        if 'Development Status' in c:
+                            changelog_notes.append(f"Status: {c}")
+                        if 'Alpha' in c or 'Beta' in c:
+                            risk_factors.append("Pre-release version")
+
+            # Maven: Check for release notes in description
+            elif pkg_type == 'maven':
+                # Maven Central search API
+                group_id, artifact_id = pkg_name.rsplit('/', 1) if '/' in pkg_name else ('', pkg_name)
+                group_id = group_id.replace('/', '.')
+                url = f"https://search.maven.org/solrsearch/select?q=g:{group_id}+AND+a:{artifact_id}+AND+v:{to_version}&rows=1&wt=json"
+                with urllib.request.urlopen(url, timeout=5) as resp:
+                    data = json_lib.loads(resp.read())
+                    docs = data.get('response', {}).get('docs', [])
+                    if docs:
+                        # Check timestamp - very old versions may have compatibility issues
+                        timestamp = docs[0].get('timestamp', 0)
+                        if timestamp > 0:
+                            from datetime import datetime
+                            release_date = datetime.fromtimestamp(timestamp/1000)
+                            age_years = (datetime.now() - release_date).days / 365
+                            if age_years > 3:
+                                changelog_notes.append(f"Release is {age_years:.1f} years old")
+
+        except Exception as e:
+            changelog_notes.append(f"(Changelog fetch failed: {str(e)[:50]})")
+
+    # 3. Keyword analysis in version string
+    breaking_keywords = ['alpha', 'beta', 'rc', 'snapshot', 'pre', 'dev']
+    if any(kw in to_version.lower() for kw in breaking_keywords):
+        risk_factors.append("Pre-release/unstable version indicator")
+        if semver_risk == "LOW":
+            semver_risk = "MEDIUM"
+
+    # Compile final assessment
+    risk_reason = "; ".join(risk_factors)
+    if changelog_notes:
+        risk_reason += "\n    Changelog: " + "; ".join(changelog_notes)
+
+    return semver_risk, risk_reason
+
+
+def fetch_changelog_summary(pkg_name, pkg_type, from_version, to_version):
+    """Attempt to fetch and summarize changelog between versions"""
+    import json
+    import urllib.request
+
+    summary = []
+
+    try:
+        if pkg_type == 'npm':
+            # GitHub releases are often linked in npm
+            url = f"https://registry.npmjs.org/{pkg_name}"
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                data = json.loads(resp.read())
+                repo = data.get('repository', {})
+                if isinstance(repo, dict) and 'url' in repo:
+                    repo_url = repo['url']
+                    if 'github.com' in repo_url:
+                        summary.append(f"GitHub: {repo_url.replace('git+', '').replace('.git', '')}/releases")
+
+        elif pkg_type == 'pypi':
+            url = f"https://pypi.org/pypi/{pkg_name}/json"
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                data = json.loads(resp.read())
+                project_urls = data.get('info', {}).get('project_urls', {})
+                for key in ['Changelog', 'Release Notes', 'History', 'Changes']:
+                    if key in project_urls:
+                        summary.append(f"{key}: {project_urls[key]}")
+                        break
+
+    except:
+        pass
+
+    return summary or ["No changelog URL found - manual review recommended"]
+
+# Template for each recommendation
+TICKET_TEMPLATE = """
+================================================================================
+PATCH RECOMMENDATION: {family_key}
+================================================================================
+PRIORITY: {priority}
+RISK LEVEL: {risk_level}
+RISK REASON: {risk_reason}
+
+ACTION: Update {family_key}
+  FROM: {vulnerable_versions}
+  TO:   {target_version}
+
+IMPACT:
+  - CVEs eliminated: {cve_count}
+  - Critical/High CVEs: {critical_high}
+  - RPS reduction: {rps_reduction}
+
+AFFECTED DATASOURCES ({ds_type}):
+{datasource_list}
+
+CVEs RESOLVED:
+{cve_list}
+
+CHANGELOG / RELEASE NOTES:
+{changelog_links}
+
+NOTES:
+{notes}
+================================================================================
+"""
+
+# Example output generation (customize based on your 8.2 query results)
+def generate_ticket(family_key, vulnerable_versions, target_version, cve_count,
+                    critical_high, pkg_type, cve_details):
+
+    # Extract package name from family_key (namespace/name format)
+    pkg_name = family_key.split('/')[-1] if '/' in family_key else family_key
+
+    # Assess breaking risk with changelog analysis
+    risk_level, risk_reason = assess_breaking_risk(
+        vulnerable_versions[0], target_version,
+        pkg_name=pkg_name, pkg_type=pkg_type
+    )
+
+    # Fetch changelog links for manual review
+    changelog_links = fetch_changelog_summary(pkg_name, pkg_type, vulnerable_versions[0], target_version)
+
+    # Set priority based on CVE severity
+    if critical_high > 0:
+        priority = "P1 - CRITICAL" if 'CRITICAL' in str(cve_details) else "P2 - HIGH"
+    else:
+        priority = "P3 - MEDIUM"
+
+    # Get affected datasources
+    affected_ds = ds_by_type.get(pkg_type, [])
+    ds_list = "\n".join([f"  - {ds['name']} ({ds['findings']} findings)"
+                         for ds in affected_ds[:10]])
+    if len(affected_ds) > 10:
+        ds_list += f"\n  ... and {len(affected_ds) - 10} more"
+
+    return TICKET_TEMPLATE.format(
+        family_key=family_key,
+        priority=priority,
+        risk_level=risk_level,
+        risk_reason=risk_reason,
+        vulnerable_versions=", ".join(vulnerable_versions),
+        target_version=target_version,
+        cve_count=cve_count,
+        critical_high=critical_high,
+        rps_reduction=len(vulnerable_versions),
+        ds_type=pkg_type,
+        datasource_list=ds_list or "  (Unable to determine specific datasources)",
+        cve_list=cve_details[:500] + "..." if len(cve_details) > 500 else cve_details,
+        changelog_links="\n".join(f"  - {link}" for link in changelog_links),
+        notes="- Review changelog for BREAKING CHANGES before upgrading\n- Run full test suite after upgrade\n- Consider staged rollout for major version bumps"
+    )
+
+# Example usage with mock data - replace with actual 8.2 results:
+# print(generate_ticket(
+#     family_key="com.fasterxml.jackson.core/jackson-databind",
+#     vulnerable_versions=["2.9.8", "2.9.10", "2.10.0"],
+#     target_version="2.12.3",
+#     cve_count=47,
+#     critical_high=12,
+#     pkg_type="maven",
+#     cve_details="CVE-2020-36518, CVE-2020-25649, CVE-2019-14540..."
+# ))
+```
+
+**8.5.4 Breaking Change Risk Matrix**
+
+| Risk Level | Version Change | Action |
+|------------|----------------|--------|
+| LOW | Patch bump (1.2.3 → 1.2.4) | Safe to auto-merge |
+| MEDIUM | Minor bump (1.2.x → 1.3.x) | Review changelog, run tests |
+| HIGH | Major bump (1.x → 2.x) | Manual review required, expect API changes |
+| UNKNOWN | Non-semver or unparseable | Manual investigation required |
+
+**8.5.5 Output Formats**
+
+For JIRA integration, export recommendations as CSV:
+```python
+import csv
+
+# Write to CSV for JIRA import
+with open('/tmp/patch_recommendations.csv', 'w', newline='') as f:
+    writer = csv.writer(f)
+    writer.writerow(['Summary', 'Priority', 'Component', 'Description', 'Labels'])
+    # Add rows from your generated tickets
+```
+
+For automated PR creation, export as JSON:
+```python
+# Write to JSON for automation
+recommendations = []
+# ... populate from analysis ...
+with open('/tmp/patch_recommendations.json', 'w') as f:
+    json.dump(recommendations, f, indent=2)
+```
+
+### STEP 9: CVE Age Analysis
+
+**9.1 Analyze CVE Ages**
 
 From `/tmp/findings.json`:
 ```python
@@ -442,14 +1010,14 @@ with open('/tmp/findings.json') as f:
 findings = data['data']['titlePage']['content']
 
 ages = []
-for f in findings:
-    published = f.get('publishedAt')
+for finding in findings:
+    published = finding.get('publishedAt')
     if published:
         pub_dt = datetime.fromisoformat(published.replace('Z', '+00:00'))
         age_days = (datetime.now() - pub_dt.replace(tzinfo=None)).days
         ages.append({
-            'cve': f.get('identifier'),
-            'severity': f.get('severity'),
+            'cve': finding.get('identifier'),
+            'severity': finding.get('severity'),
             'age_days': age_days,
             'age_years': age_days / 365
         })
@@ -472,7 +1040,7 @@ print(f"  1-2 years: {under_2yr} ({under_2yr/len(ages)*100:.1f}%)")
 print(f"  >2 years: {over_2yr} ({over_2yr/len(ages)*100:.1f}%)")
 ```
 
-**7.2 Interpret CVE Ages**
+**9.2 Interpret CVE Ages**
 
 **Red Flags:**
 - CRITICAL CVEs >1 year old
@@ -484,9 +1052,9 @@ print(f"  >2 years: {over_2yr} ({over_2yr/len(ages)*100:.1f}%)")
 - Packages stuck on old versions
 - Technical debt accumulation
 
-### STEP 8: Package Growth Analysis
+### STEP 10: Package Growth Analysis
 
-**8.1 Track Package Count**
+**10.1 Track Package Count**
 
 ```python
 pkg_data = [(m['commitDateTime'][:10], m['packages']) for m in metrics]
@@ -502,7 +1070,7 @@ growth_pct = (growth / pkg_sorted[0][1] * 100)
 print(f"\nPackage Growth: +{growth:,} ({growth_pct:.1f}%)")
 ```
 
-**8.2 Interpret Package Growth**
+**10.2 Interpret Package Growth**
 
 - Controlled growth (<10% over 6 months): ✓ Good
 - Moderate growth (10-30%): ○ Acceptable
@@ -514,9 +1082,9 @@ print(f"\nPackage Growth: +{growth:,} ({growth_pct:.1f}%)")
 - Package growth = findings growth: Stable (neutral)
 - Package growth < findings growth: Degrading (bad)
 
-### STEP 9: Synthesize Findings
+### STEP 11: Synthesize Findings
 
-**9.1 Calculate Overall Grade**
+**11.1 Calculate Overall Grade**
 
 Use this rubric:
 
@@ -528,7 +1096,7 @@ Use this rubric:
 | RPS Trend | 15% | Decreasing=A, Stable=C, Increasing=F |
 | Edit Efficiency | 10% | <30% same=A, 30-50%=C, >66%=F |
 
-**9.2 Identify Root Causes**
+**11.2 Identify Root Causes**
 
 Common patterns:
 
