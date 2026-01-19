@@ -240,6 +240,494 @@ curl -s "http://localhost:1702/api/v1/db/datasetMetrics/query?datasetName=DATASE
 
 ## 5. Analysis Methodology
 
+> **THE PATCHFOX ADVANTAGE: THE STORY IN YOUR DATA**
+>
+> PatchFox doesn't just show you where you are - it shows you **how you got here**. Every metric is a time series that tells a story: the beginning state, the journey, the inflection points, and the current chapter. When you see 100 findings, the question isn't "is 100 good or bad?" - it's "how did we get to 100, what happened along the way, and what does that journey tell us about what's working?"
+>
+> This runbook treats your data as a **narrative** - identifying chapters, turning points, and the organizational behaviors that drove change. Understanding the story is how you learn what to repeat and what to fix.
+
+### Temporal Analysis Utilities
+
+These utilities extract the story from your time series data.
+
+```python
+import json
+from datetime import datetime, timedelta
+from collections import defaultdict
+from typing import List, Dict, Tuple, Optional
+
+def parse_metrics(filepath: str) -> List[Dict]:
+    """Load and sort metrics chronologically - the raw material for our story."""
+    with open(filepath) as f:
+        data = json.load(f)
+    metrics = data['data']['titlePage']['content']
+    metrics.sort(key=lambda x: x['commitDateTime'])
+    return metrics
+
+def extract_time_series(metrics: List[Dict], field: str) -> List[Tuple[datetime, float]]:
+    """Extract a single metric as time series [(datetime, value), ...]."""
+    series = []
+    for m in metrics:
+        dt = datetime.fromisoformat(m['commitDateTime'].replace('Z', '+00:00')).replace(tzinfo=None)
+        value = m.get(field, 0) or 0
+        series.append((dt, float(value)))
+    return series
+
+
+# =============================================================================
+# STORY STRUCTURE: Beginning, Journey, Current State
+# =============================================================================
+
+def get_story_arc(series: List[Tuple[datetime, float]]) -> Dict:
+    """
+    Extract the narrative arc: where we started, where we are, and the journey between.
+    """
+    if len(series) < 2:
+        return {'error': 'Insufficient data for story'}
+
+    start_date, start_value = series[0]
+    end_date, end_value = series[-1]
+    total_days = (end_date - start_date).days
+
+    # Find the midpoint for "middle of the story"
+    mid_idx = len(series) // 2
+    mid_date, mid_value = series[mid_idx]
+
+    # Calculate total change
+    total_change = end_value - start_value
+    total_change_pct = (total_change / start_value * 100) if start_value else 0
+
+    # Determine the overall narrative
+    if abs(total_change_pct) < 10:
+        narrative = "relatively stable"
+    elif total_change > 0:
+        narrative = "trending upward"
+    else:
+        narrative = "trending downward"
+
+    return {
+        'beginning': {
+            'date': start_date,
+            'value': start_value,
+            'description': f"Started at {start_value:.1f} on {start_date.strftime('%Y-%m-%d')}"
+        },
+        'middle': {
+            'date': mid_date,
+            'value': mid_value,
+            'description': f"Mid-journey: {mid_value:.1f} on {mid_date.strftime('%Y-%m-%d')}"
+        },
+        'current': {
+            'date': end_date,
+            'value': end_value,
+            'description': f"Now at {end_value:.1f} as of {end_date.strftime('%Y-%m-%d')}"
+        },
+        'journey': {
+            'total_days': total_days,
+            'total_change': total_change,
+            'total_change_pct': total_change_pct,
+            'narrative': narrative
+        }
+    }
+
+
+# =============================================================================
+# CHAPTERS: Identify distinct phases in the story
+# =============================================================================
+
+def identify_chapters(series: List[Tuple[datetime, float]], min_chapter_days: int = 30) -> List[Dict]:
+    """
+    Break the time series into chapters - distinct phases with consistent behavior.
+    Each chapter has a character: growth, decline, stability, volatility.
+    """
+    if len(series) < 10:
+        return [{'chapter': 1, 'description': 'Insufficient data for chapter analysis'}]
+
+    chapters = []
+    chapter_start = 0
+    chapter_num = 1
+
+    def get_chapter_character(segment):
+        """Determine the character of a chapter segment."""
+        if len(segment) < 2:
+            return 'brief'
+
+        values = [v for _, v in segment]
+        start_val, end_val = values[0], values[-1]
+        change_pct = ((end_val - start_val) / start_val * 100) if start_val else 0
+
+        # Calculate volatility
+        mean_val = sum(values) / len(values)
+        variance = sum((v - mean_val) ** 2 for v in values) / len(values)
+        volatility = (variance ** 0.5) / mean_val if mean_val else 0
+
+        if volatility > 0.3:
+            return 'volatile'
+        elif change_pct > 15:
+            return 'growth'
+        elif change_pct < -15:
+            return 'decline'
+        else:
+            return 'stability'
+
+    # Sliding window to detect character changes
+    window_size = max(5, len(series) // 20)
+    prev_character = None
+
+    for i in range(window_size, len(series)):
+        window = series[i-window_size:i]
+        character = get_chapter_character(window)
+
+        if prev_character and character != prev_character:
+            # Chapter transition detected
+            chapter_segment = series[chapter_start:i]
+            if len(chapter_segment) >= 3:
+                start_date = chapter_segment[0][0]
+                end_date = chapter_segment[-1][0]
+                days = (end_date - start_date).days
+
+                if days >= min_chapter_days:
+                    chapters.append({
+                        'chapter': chapter_num,
+                        'start_date': start_date,
+                        'end_date': end_date,
+                        'days': days,
+                        'start_value': chapter_segment[0][1],
+                        'end_value': chapter_segment[-1][1],
+                        'character': prev_character,
+                        'data_points': len(chapter_segment)
+                    })
+                    chapter_num += 1
+                    chapter_start = i
+
+        prev_character = character
+
+    # Don't forget the final chapter
+    final_segment = series[chapter_start:]
+    if len(final_segment) >= 3:
+        chapters.append({
+            'chapter': chapter_num,
+            'start_date': final_segment[0][0],
+            'end_date': final_segment[-1][0],
+            'days': (final_segment[-1][0] - final_segment[0][0]).days,
+            'start_value': final_segment[0][1],
+            'end_value': final_segment[-1][1],
+            'character': get_chapter_character(final_segment),
+            'data_points': len(final_segment)
+        })
+
+    return chapters if chapters else [{'chapter': 1, 'character': get_chapter_character(series),
+                                        'start_date': series[0][0], 'end_date': series[-1][0]}]
+
+
+# =============================================================================
+# INFLECTION POINTS: The turning points in our story
+# =============================================================================
+
+def find_turning_points(series: List[Tuple[datetime, float]], sensitivity: float = 0.15) -> List[Dict]:
+    """
+    Find significant turning points where the trend direction changed.
+    These are the "plot twists" - moments worth investigating.
+    """
+    if len(series) < 10:
+        return []
+
+    turning_points = []
+    window = max(3, len(series) // 20)
+
+    for i in range(window, len(series) - window):
+        before = series[i-window:i]
+        after = series[i:i+window]
+
+        # Calculate slopes
+        before_change = (before[-1][1] - before[0][1]) / (before[-1][1] or 1)
+        after_change = (after[-1][1] - after[0][1]) / (after[0][1] or 1)
+
+        # Detect direction change
+        if before_change > sensitivity and after_change < -sensitivity:
+            turning_points.append({
+                'date': series[i][0],
+                'value': series[i][1],
+                'type': 'peak_then_decline',
+                'description': f"Peaked at {series[i][1]:.1f}, then began declining",
+                'before_trend': f"+{before_change*100:.1f}%",
+                'after_trend': f"{after_change*100:.1f}%",
+                'investigation_prompt': "What changed? New policy? Team change? Tool adoption?"
+            })
+        elif before_change < -sensitivity and after_change > sensitivity:
+            turning_points.append({
+                'date': series[i][0],
+                'value': series[i][1],
+                'type': 'trough_then_recovery',
+                'description': f"Bottomed at {series[i][1]:.1f}, then began recovering",
+                'before_trend': f"{before_change*100:.1f}%",
+                'after_trend': f"+{after_change*100:.1f}%",
+                'investigation_prompt': "What intervention worked? Can we replicate it?"
+            })
+
+    return turning_points
+
+
+# =============================================================================
+# NOTABLE EVENTS: Anomalies that are part of the story
+# =============================================================================
+
+def find_notable_events(series: List[Tuple[datetime, float]], threshold_stddev: float = 2.0) -> List[Dict]:
+    """
+    Find notable events - sudden changes that stand out from the normal pattern.
+    These are moments that demand explanation.
+    """
+    if len(series) < 5:
+        return []
+
+    # Calculate day-over-day changes
+    changes = []
+    for i in range(1, len(series)):
+        prev_date, prev_val = series[i-1]
+        curr_date, curr_val = series[i]
+        change = curr_val - prev_val
+        change_pct = (change / prev_val * 100) if prev_val else 0
+        changes.append({
+            'date': curr_date,
+            'value': curr_val,
+            'prev_value': prev_val,
+            'change': change,
+            'change_pct': change_pct
+        })
+
+    # Calculate statistics
+    change_values = [c['change'] for c in changes]
+    mean_change = sum(change_values) / len(change_values)
+    variance = sum((c - mean_change) ** 2 for c in change_values) / len(change_values)
+    stddev = variance ** 0.5
+
+    # Find notable events
+    events = []
+    for c in changes:
+        if stddev > 0:
+            z_score = abs(c['change'] - mean_change) / stddev
+            if z_score > threshold_stddev:
+                event_type = 'spike' if c['change'] > 0 else 'drop'
+                events.append({
+                    'date': c['date'],
+                    'value': c['value'],
+                    'change': c['change'],
+                    'change_pct': c['change_pct'],
+                    'type': event_type,
+                    'severity': z_score,
+                    'description': f"{'Sudden increase' if event_type == 'spike' else 'Sudden decrease'} of {abs(c['change']):.1f} ({c['change_pct']:+.1f}%)",
+                    'investigation_prompt': f"What happened on {c['date'].strftime('%Y-%m-%d')}? Check commits, releases, team changes."
+                })
+
+    return sorted(events, key=lambda x: x['severity'], reverse=True)
+
+
+# =============================================================================
+# VELOCITY: How fast things are changing (behavioral indicator)
+# =============================================================================
+
+def analyze_velocity(series: List[Tuple[datetime, float]], period_days: int = 30) -> Dict:
+    """
+    Analyze the velocity (rate of change) over time.
+    Velocity changes tell us about organizational behavior.
+    """
+    if len(series) < 2:
+        return {'error': 'Insufficient data'}
+
+    # Overall velocity
+    total_days = (series[-1][0] - series[0][0]).days or 1
+    total_change = series[-1][1] - series[0][1]
+    overall_velocity = (total_change / total_days) * period_days
+
+    # Recent velocity (last period)
+    recent_cutoff = series[-1][0] - timedelta(days=period_days)
+    recent_points = [(d, v) for d, v in series if d >= recent_cutoff]
+
+    if len(recent_points) >= 2:
+        recent_days = (recent_points[-1][0] - recent_points[0][0]).days or 1
+        recent_change = recent_points[-1][1] - recent_points[0][1]
+        recent_velocity = (recent_change / recent_days) * period_days
+    else:
+        recent_velocity = overall_velocity
+
+    # Historical velocity (before recent period)
+    historical_points = [(d, v) for d, v in series if d < recent_cutoff]
+    if len(historical_points) >= 2:
+        hist_days = (historical_points[-1][0] - historical_points[0][0]).days or 1
+        hist_change = historical_points[-1][1] - historical_points[0][1]
+        historical_velocity = (hist_change / hist_days) * period_days
+    else:
+        historical_velocity = overall_velocity
+
+    # Interpret the velocity story
+    if abs(recent_velocity) < 0.1 and abs(historical_velocity) < 0.1:
+        velocity_story = "Consistently stable - minimal change throughout"
+    elif recent_velocity > 0 and historical_velocity <= 0:
+        velocity_story = "Recent reversal - was improving, now degrading"
+    elif recent_velocity < 0 and historical_velocity >= 0:
+        velocity_story = "Recent improvement - was degrading or stable, now improving"
+    elif abs(recent_velocity) > abs(historical_velocity) * 1.5:
+        direction = "improvement" if recent_velocity < 0 else "degradation"
+        velocity_story = f"Accelerating {direction} - change is speeding up"
+    elif abs(recent_velocity) < abs(historical_velocity) * 0.5:
+        velocity_story = "Decelerating - rate of change is slowing"
+    else:
+        velocity_story = "Consistent pace of change"
+
+    return {
+        'overall_velocity': overall_velocity,
+        'recent_velocity': recent_velocity,
+        'historical_velocity': historical_velocity,
+        'velocity_story': velocity_story,
+        'recent_vs_historical': recent_velocity / historical_velocity if historical_velocity else 1.0,
+        'interpretation': f"Currently changing at {recent_velocity:+.1f}/month vs historical {historical_velocity:+.1f}/month"
+    }
+
+
+# =============================================================================
+# PERIOD COMPARISON: This period vs last period
+# =============================================================================
+
+def compare_periods(series: List[Tuple[datetime, float]], period_days: int = 30) -> Dict:
+    """
+    Compare current period to previous period - a simple but powerful story element.
+    """
+    if len(series) < 2:
+        return {'error': 'Insufficient data'}
+
+    latest_date = series[-1][0]
+    current_cutoff = latest_date - timedelta(days=period_days)
+    previous_cutoff = current_cutoff - timedelta(days=period_days)
+
+    current_values = [v for d, v in series if d > current_cutoff]
+    previous_values = [v for d, v in series if previous_cutoff < d <= current_cutoff]
+
+    current_avg = sum(current_values) / len(current_values) if current_values else 0
+    previous_avg = sum(previous_values) / len(previous_values) if previous_values else current_avg
+
+    change = current_avg - previous_avg
+    change_pct = (change / previous_avg * 100) if previous_avg else 0
+
+    return {
+        'current_period_avg': current_avg,
+        'previous_period_avg': previous_avg,
+        'change': change,
+        'change_pct': change_pct,
+        'story': f"Last {period_days} days averaged {current_avg:.1f} vs {previous_avg:.1f} prior ({change_pct:+.1f}%)"
+    }
+
+
+# =============================================================================
+# COMPLETE STORY: Pull it all together
+# =============================================================================
+
+def tell_metric_story(series: List[Tuple[datetime, float]], metric_name: str,
+                      lower_is_better: bool = True) -> Dict:
+    """
+    Generate the complete narrative for a metric.
+    This is the main function that tells the story of how we got here.
+    """
+    if not series or len(series) < 3:
+        return {'error': 'Insufficient data to tell story', 'metric_name': metric_name}
+
+    # Gather all story elements
+    arc = get_story_arc(series)
+    chapters = identify_chapters(series)
+    turning_points = find_turning_points(series)
+    notable_events = find_notable_events(series)
+    velocity = analyze_velocity(series)
+    period_comparison = compare_periods(series)
+
+    # Build the narrative summary
+    direction_word = "decreased" if arc['journey']['total_change'] < 0 else "increased"
+    if not lower_is_better:
+        good_bad = "good" if arc['journey']['total_change'] > 0 else "concerning"
+    else:
+        good_bad = "good" if arc['journey']['total_change'] < 0 else "concerning"
+
+    narrative_summary = (
+        f"{metric_name} started at {arc['beginning']['value']:.1f} on {arc['beginning']['date'].strftime('%Y-%m-%d')} "
+        f"and {direction_word} to {arc['current']['value']:.1f} over {arc['journey']['total_days']} days "
+        f"({arc['journey']['total_change_pct']:+.1f}%). This is {good_bad}. "
+        f"{velocity['velocity_story']}."
+    )
+
+    # Add chapter summaries
+    chapter_summary = []
+    for ch in chapters:
+        if isinstance(ch.get('start_date'), datetime):
+            chapter_summary.append(
+                f"Chapter {ch['chapter']} ({ch['start_date'].strftime('%b %Y')} - {ch['end_date'].strftime('%b %Y')}): "
+                f"{ch['character'].upper()} phase, {ch['start_value']:.1f} → {ch['end_value']:.1f}"
+            )
+
+    # Key events to investigate
+    investigate = []
+    for tp in turning_points[:3]:
+        investigate.append({
+            'date': tp['date'].strftime('%Y-%m-%d'),
+            'event': tp['description'],
+            'prompt': tp['investigation_prompt']
+        })
+    for ne in notable_events[:3]:
+        if not any(i['date'] == ne['date'].strftime('%Y-%m-%d') for i in investigate):
+            investigate.append({
+                'date': ne['date'].strftime('%Y-%m-%d'),
+                'event': ne['description'],
+                'prompt': ne['investigation_prompt']
+            })
+
+    return {
+        'metric_name': metric_name,
+        'narrative_summary': narrative_summary,
+        'story_arc': arc,
+        'chapters': chapters,
+        'chapter_summary': chapter_summary,
+        'turning_points': turning_points,
+        'notable_events': notable_events[:5],
+        'velocity': velocity,
+        'period_comparison': period_comparison,
+        'investigate': investigate[:5],
+        'data_points': len(series),
+        'lower_is_better': lower_is_better
+    }
+
+
+def print_metric_story(story: Dict):
+    """Pretty print the story of a metric."""
+    print(f"\n{'='*70}")
+    print(f"  THE STORY OF {story['metric_name'].upper()}")
+    print(f"{'='*70}")
+    print()
+    print(f"  SUMMARY:")
+    print(f"  {story['narrative_summary']}")
+    print()
+
+    if story.get('chapter_summary'):
+        print(f"  CHAPTERS:")
+        for ch in story['chapter_summary']:
+            print(f"    • {ch}")
+        print()
+
+    print(f"  RECENT TREND:")
+    print(f"    {story['period_comparison']['story']}")
+    print(f"    Velocity: {story['velocity']['interpretation']}")
+    print()
+
+    if story.get('investigate'):
+        print(f"  KEY EVENTS TO INVESTIGATE:")
+        for item in story['investigate']:
+            print(f"    📍 {item['date']}: {item['event']}")
+            print(f"       → {item['prompt']}")
+        print()
+
+    arc = story['story_arc']
+    print(f"  JOURNEY SUMMARY:")
+    print(f"    Start:   {arc['beginning']['description']}")
+    print(f"    Current: {arc['current']['description']}")
+    print(f"    Change:  {arc['journey']['total_change']:+.1f} ({arc['journey']['total_change_pct']:+.1f}%)")
+    print()
+```
+
 ### STEP 1: Initial Data Collection
 
 **1.1 Get Dataset Name**
@@ -337,165 +825,513 @@ Look for disproportionate relationships:
 
 **Example Insight:** "npm is only 1.6% of datasources but 17% of packages - each npm project brings 10x more dependencies. pypi has 6x the vulnerability density of the dataset average."
 
-### STEP 3: PES Analysis
+### STEP 3: PES Analysis - The Patch Effectiveness Story
 
-**3.1 Calculate PES Statistics**
+PES (Patch Efficacy Score) tells the story of whether your patching efforts are actually improving security. This isn't about "what's the average?" - it's about "how has patch effectiveness evolved, and what does that tell us?"
 
-From `/tmp/metrics.json`:
+**3.1 Tell the PES Story**
+
 ```python
-import json
-with open('/tmp/metrics.json') as f:
-    data = json.load(f)
-metrics = data['data']['titlePage']['content']
+# Using the temporal utilities from above
+metrics = parse_metrics('/tmp/metrics.json')
+pes_series = extract_time_series(metrics, 'patchEfficacyScore')
 
-# Sort chronologically
-metrics.sort(key=lambda x: x['commitDateTime'])
-
-# Calculate averages
-avg_pes = sum(m['patchEfficacyScore'] for m in metrics) / len(metrics)
-avg_impact = sum(m['patchImpact'] for m in metrics) / len(metrics)
-avg_effort = sum(m['patchEffort'] for m in metrics) / len(metrics)
-
-# Count distribution
-positive = sum(1 for m in metrics if m['patchEfficacyScore'] > 0)
-negative = sum(1 for m in metrics if m['patchEfficacyScore'] < 0)
-neutral = sum(1 for m in metrics if m['patchEfficacyScore'] == 0)
-
-print(f"Average PES: {avg_pes:.2f}")
-print(f"Average Impact: {avg_impact:.2f}")
-print(f"Average Effort: {avg_effort:.2f}")
-print(f"Positive: {positive}/{len(metrics)} ({positive/len(metrics)*100:.1f}%)")
-print(f"Negative: {negative}/{len(metrics)} ({negative/len(metrics)*100:.1f}%)")
+# Get the full story - PES is special: HIGHER is better
+pes_story = tell_metric_story(pes_series, "Patch Efficacy Score (PES)", lower_is_better=False)
+print_metric_story(pes_story)
 ```
 
-**3.2 Identify PES Trends**
+**3.2 PES Story Interpretation**
 
-Track over time:
-```python
-for m in metrics:
-    print(f"{m['commitDateTime'][:10]}: PES={m['patchEfficacyScore']:.2f}, Impact={m['patchImpact']:.2f}, Effort={m['patchEffort']:.2f}")
+The PES story answers these questions:
+
+| Question | Where to Look |
+|----------|---------------|
+| "Are patches getting more effective over time?" | `story_arc.journey.narrative` and `velocity.velocity_story` |
+| "When did patch effectiveness change?" | `turning_points` - look for peaks and troughs |
+| "What's the recent trend vs historical?" | `period_comparison` and `velocity.recent_vs_historical` |
+| "Were there any dramatic shifts?" | `notable_events` - spikes or drops in PES |
+| "What phases has PES gone through?" | `chapters` - periods of improvement, decline, stability |
+
+**3.3 Key PES Story Patterns**
+
+| Pattern | What It Means | Investigation |
+|---------|---------------|---------------|
+| Chapter of DECLINE followed by GROWTH | Something changed - policy? tooling? team? | Check what happened at the inflection point |
+| Recent velocity reversal (was improving, now degrading) | Recent changes are hurting effectiveness | Review recent patch decisions |
+| Spike in PES on specific date | A particularly effective patch batch | What made it effective? Replicate it |
+| Consistent STABILITY near zero | Patches neither helping nor hurting | Patches may not be targeting real issues |
+| VOLATILE chapters | Inconsistent patching approach | Need standardization |
+
+**3.4 Example PES Story Output**
+
+```
+======================================================================
+  THE STORY OF PATCH EFFICACY SCORE (PES)
+======================================================================
+
+  SUMMARY:
+  Patch Efficacy Score (PES) started at -0.5 on 2024-01-15 and increased
+  to 1.2 over 365 days (+340.0%). This is good. Recent improvement -
+  was degrading or stable, now improving.
+
+  CHAPTERS:
+    • Chapter 1 (Jan 2024 - Apr 2024): DECLINE phase, -0.5 → -1.8
+    • Chapter 2 (Apr 2024 - Aug 2024): STABILITY phase, -1.8 → -1.5
+    • Chapter 3 (Aug 2024 - Jan 2025): GROWTH phase, -1.5 → 1.2
+
+  RECENT TREND:
+    Last 30 days averaged 1.1 vs 0.3 prior (+266.7%)
+    Velocity: Currently changing at +0.8/month vs historical +0.15/month
+
+  KEY EVENTS TO INVESTIGATE:
+    📍 2024-08-12: Bottomed at -1.8, then began recovering
+       → What intervention worked? Can we replicate it?
+    📍 2024-11-03: Sudden increase of 0.9 (+150.0%)
+       → What happened on 2024-11-03? Check commits, releases, team changes.
+
+  JOURNEY SUMMARY:
+    Start:   Started at -0.5 on 2024-01-15
+    Current: Now at 1.2 as of 2025-01-15
+    Change:  +1.7 (+340.0%)
 ```
 
-**3.3 Grade PES Performance**
-- Average PES > 1: A (Excellent)
-- Average PES 0 to 1: B (Good)
-- Average PES -1 to 0: C (Acceptable)
-- Average PES -2 to -1: D (Poor)
-- Average PES < -2: F (Failing)
+**3.5 Grading (Informed by Story)**
 
-### STEP 4: RPS Analysis
+The grade considers both current state AND trajectory:
 
-**4.1 Calculate RPS Trend**
+| Grade | Criteria |
+|-------|----------|
+| A | Current PES > 1 AND improving or stable |
+| B | Current PES 0-1 AND improving, OR PES > 1 but declining |
+| C | Current PES -1 to 0, OR positive but rapidly declining |
+| D | Current PES -1 to -2, OR near-zero with no improvement trend |
+| F | Current PES < -2, OR any negative PES with worsening trend |
+
+### STEP 4: RPS Analysis - The Version Fragmentation Story
+
+RPS (Redundant Package Score) tells the story of version consolidation. Are you converging on standard versions, or fragmenting into chaos?
+
+**4.1 Tell the RPS Story**
 
 ```python
-rps_values = [(m['commitDateTime'][:10], m['rpsScore']) for m in metrics]
-rps_sorted = sorted(rps_values, key=lambda x: x[0])
-
-print(f"RPS Earliest: {rps_sorted[0]}")
-print(f"RPS Latest: {rps_sorted[-1]}")
-print(f"RPS Change: {rps_sorted[-1][1] - rps_sorted[0][1]:.2f}")
+rps_series = extract_time_series(metrics, 'rpsScore')
+rps_story = tell_metric_story(rps_series, "Redundant Package Score (RPS)", lower_is_better=True)
+print_metric_story(rps_story)
 ```
 
-**4.2 Interpret RPS**
-- Decreasing RPS: ✓ Good (consolidating versions)
-- Stable RPS: ○ Neutral
-- Increasing RPS: ✗ Bad (fragmenting versions)
+**4.2 RPS Story Interpretation**
 
-### STEP 5: Findings Analysis
+| Question | Where to Look |
+|----------|---------------|
+| "Is version fragmentation getting better or worse?" | `story_arc.journey.narrative` |
+| "When did fragmentation patterns change?" | `turning_points` and `chapters` |
+| "Are consolidation efforts working?" | `velocity` - is recent velocity negative (improving)? |
+| "Any sudden fragmentation events?" | `notable_events` - spikes indicate bulk additions of new versions |
 
-**5.1 Calculate Findings Trend**
+**4.3 Key RPS Story Patterns**
+
+| Pattern | What It Means | Action |
+|---------|---------------|--------|
+| Steady DECLINE over time | Consolidation efforts working | Continue approach |
+| GROWTH chapters | Periods of uncontrolled additions | Investigate what drove new versions |
+| Spike events | Bulk imports or major version bumps | Check if intentional |
+| VOLATILE with no trend | No consolidation strategy | Implement version pinning policy |
+| Recent velocity reversal (was declining, now growing) | Consolidation efforts stalled | Re-engage standardization |
+
+**4.4 Grading (Informed by Story)**
+
+| Grade | Criteria |
+|-------|----------|
+| A | RPS < 5 AND declining or stable |
+| B | RPS 5-15 AND declining, OR RPS < 5 but growing slowly |
+| C | RPS 5-15 stable, OR 15-25 declining |
+| D | RPS 15-25 stable or growing, OR any RPS with accelerating growth |
+| F | RPS > 25, OR any RPS with rapid growth trend |
+
+### STEP 5: Findings Analysis - The Vulnerability Story
+
+This is often the most important story - how has your vulnerability exposure evolved over time?
+
+**5.1 Tell the Findings Story**
 
 ```python
-findings_data = [(m['commitDateTime'][:10], m['totalFindings'], m['packages']) for m in metrics]
-findings_sorted = sorted(findings_data, key=lambda x: x[0])
+findings_series = extract_time_series(metrics, 'totalFindings')
+findings_story = tell_metric_story(findings_series, "Total Findings", lower_is_better=True)
+print_metric_story(findings_story)
 
-print("Findings Trajectory:")
-for date, findings, packages in findings_sorted:
-    vuln_pct = (findings / packages * 100) if packages > 0 else 0
-    print(f"  {date}: {findings} findings in {packages} packages ({vuln_pct:.2f}% vulnerable)")
-
-# Calculate change
-change = findings_sorted[-1][1] - findings_sorted[0][1]
-print(f"\nFindings Change: {change:+d} ({(change/findings_sorted[0][1]*100):.1f}%)")
+# Also analyze critical findings separately - they have their own story
+critical_series = extract_time_series(metrics, 'criticalFindings')
+critical_story = tell_metric_story(critical_series, "Critical Findings", lower_is_better=True)
+print_metric_story(critical_story)
 ```
 
-**5.2 Severity Breakdown**
+**5.2 Discovery vs Remediation: The Two Forces**
+
+Findings change due to two opposing forces:
+1. **Discovery** - new CVEs found in existing packages (increases findings)
+2. **Remediation** - fixing/removing vulnerable packages (decreases findings)
+
+To understand the story, you need to see both:
 
 ```python
-latest = metrics[-1]
-print(f"Current Findings (Severity):")
-print(f"  CRITICAL: {latest['criticalFindings']}")
-print(f"  HIGH: {latest['highFindings']}")
-print(f"  MEDIUM: {latest['mediumFindings']}")
-print(f"  LOW: {latest['lowFindings']}")
-print(f"  TOTAL: {latest['totalFindings']}")
+def analyze_discovery_vs_remediation(metrics):
+    """
+    Separate the discovery and remediation components of the findings story.
+    """
+    results = []
+
+    for i in range(1, len(metrics)):
+        prev = metrics[i-1]
+        curr = metrics[i]
+
+        prev_date = datetime.fromisoformat(prev['commitDateTime'].replace('Z', '+00:00'))
+        curr_date = datetime.fromisoformat(curr['commitDateTime'].replace('Z', '+00:00'))
+
+        findings_change = curr['totalFindings'] - prev['totalFindings']
+        packages_change = curr['packages'] - prev['packages']
+
+        # Estimate: if packages decreased and findings decreased, likely remediation
+        # If packages stable/grew and findings increased, likely discovery
+        if findings_change < 0:
+            remediation_estimate = abs(findings_change)
+            discovery_estimate = 0
+        else:
+            # Some findings increase could be discovery, some could be from new packages
+            if packages_change > 0:
+                # Rough heuristic: attribute some to new packages
+                discovery_estimate = findings_change
+                remediation_estimate = 0
+            else:
+                discovery_estimate = findings_change
+                remediation_estimate = 0
+
+        results.append({
+            'date': curr_date,
+            'findings_change': findings_change,
+            'packages_change': packages_change,
+            'discovery_estimate': discovery_estimate,
+            'remediation_estimate': remediation_estimate
+        })
+
+    # Summarize
+    total_discovery = sum(r['discovery_estimate'] for r in results)
+    total_remediation = sum(r['remediation_estimate'] for r in results)
+
+    print(f"\nDISCOVERY vs REMEDIATION STORY:")
+    print(f"  Estimated new discoveries: +{total_discovery}")
+    print(f"  Estimated remediations: -{total_remediation}")
+    print(f"  Net effect: {total_discovery - total_remediation:+d}")
+
+    if total_remediation > total_discovery:
+        print(f"  → Remediation outpacing discovery (GOOD)")
+    elif total_discovery > total_remediation * 1.5:
+        print(f"  → Discovery significantly outpacing remediation (CONCERNING)")
+    else:
+        print(f"  → Roughly balanced (STABLE)")
+
+    return results
+
+analyze_discovery_vs_remediation(metrics)
 ```
 
-**5.3 Interpret Findings Trend**
-- Decreasing findings: ✓ Good (effective remediation)
-- Stable findings: ○ Neutral (treading water)
-- Increasing findings: ✗ Bad (accumulating debt)
-
-### STEP 6: Backlog Analysis
-
-**6.1 Calculate Backlog Distribution**
+**5.3 Severity Trends - Each Severity Has Its Own Story**
 
 ```python
-for m in metrics[-5:]:  # Last 5 snapshots
-    backlog_30_60 = m.get('findingsInBacklogBetweenThirtyAndSixtyDays', 0)
-    backlog_60_90 = m.get('findingsInBacklogBetweenSixtyAndNinetyDays', 0)
-    backlog_90_plus = m.get('findingsInBacklogOverNinetyDays', 0)
-    total_backlog = backlog_30_60 + backlog_60_90 + backlog_90_plus
+# Track how severity mix has changed over time
+def analyze_severity_story(metrics):
+    """Show how the severity composition has evolved."""
 
-    if total_backlog > 0:
-        pct_90_plus = (backlog_90_plus / total_backlog * 100)
-        print(f"{m['commitDateTime'][:10]}: {total_backlog:.0f} backlog ({pct_90_plus:.0f}% in 90+ days)")
+    print("\nSEVERITY COMPOSITION OVER TIME:")
+    print(f"{'Date':<12} {'CRIT':>6} {'HIGH':>6} {'MED':>6} {'LOW':>6} {'TOTAL':>7} {'%CRIT+HIGH':>10}")
+    print("-" * 60)
+
+    for m in metrics[::max(1, len(metrics)//10)]:  # Sample 10 points
+        date = m['commitDateTime'][:10]
+        crit = m.get('criticalFindings', 0)
+        high = m.get('highFindings', 0)
+        med = m.get('mediumFindings', 0)
+        low = m.get('lowFindings', 0)
+        total = m.get('totalFindings', 0)
+
+        crit_high_pct = ((crit + high) / total * 100) if total > 0 else 0
+
+        print(f"{date:<12} {crit:>6} {high:>6} {med:>6} {low:>6} {total:>7} {crit_high_pct:>9.1f}%")
+
+    # Story of severity mix
+    first = metrics[0]
+    last = metrics[-1]
+
+    first_crit_high_pct = ((first.get('criticalFindings', 0) + first.get('highFindings', 0)) /
+                          first.get('totalFindings', 1) * 100)
+    last_crit_high_pct = ((last.get('criticalFindings', 0) + last.get('highFindings', 0)) /
+                         last.get('totalFindings', 1) * 100)
+
+    print(f"\nSEVERITY MIX STORY:")
+    print(f"  Critical+High started at {first_crit_high_pct:.1f}% of findings")
+    print(f"  Critical+High now at {last_crit_high_pct:.1f}% of findings")
+
+    if last_crit_high_pct < first_crit_high_pct - 5:
+        print(f"  → Severity mix improving - high-severity findings being prioritized")
+    elif last_crit_high_pct > first_crit_high_pct + 5:
+        print(f"  → Severity mix worsening - high-severity findings accumulating")
+    else:
+        print(f"  → Severity mix stable")
+
+analyze_severity_story(metrics)
 ```
 
-**6.2 Interpret Backlog**
-- Growing backlog: ✗ Bad (not resolving)
-- Stable backlog: ○ Neutral (treading water)
-- Shrinking backlog: ✓ Good (actively resolving)
-- >70% in 90+ days: ✗ Very bad (old vulnerabilities)
+**5.4 Key Findings Story Patterns**
 
-### STEP 7: Edit Type Analysis
+| Pattern | What It Means | Action |
+|---------|---------------|--------|
+| Steady DECLINE | Active remediation working | Continue and celebrate |
+| GROWTH despite patches | Discovery outpacing remediation | Increase remediation velocity |
+| Spike followed by decline | Major discovery event, then cleanup | Good response pattern |
+| Critical findings GROWTH while total stable | Prioritizing wrong things | Shift focus to severity |
+| VOLATILE with no trend | Reactive, not proactive | Need systematic approach |
 
-**7.1 Count Edit Types**
+**5.5 Grading (Informed by Story)**
 
-From `/tmp/edits.json`:
+| Grade | Criteria |
+|-------|----------|
+| A | Findings declining AND critical findings declining faster |
+| B | Findings stable or slowly declining |
+| C | Findings slowly growing but critical stable/declining |
+| D | Findings growing AND critical growing |
+| F | Rapid findings growth OR critical findings exploding |
+
+### STEP 6: Backlog Analysis - The Remediation Velocity Story
+
+The backlog tells you not just how many vulnerabilities exist, but how long they've been sitting there. This is the story of **remediation velocity** - are you closing findings, or are they aging in place?
+
+**6.1 Tell the Backlog Story**
+
 ```python
+# Calculate total backlog over time
+def extract_backlog_series(metrics):
+    """Extract backlog as time series, plus 90+ day percentage."""
+    series = []
+    pct_90_series = []
+
+    for m in metrics:
+        dt = datetime.fromisoformat(m['commitDateTime'].replace('Z', '+00:00')).replace(tzinfo=None)
+        backlog_30_60 = m.get('findingsInBacklogBetweenThirtyAndSixtyDays', 0) or 0
+        backlog_60_90 = m.get('findingsInBacklogBetweenSixtyAndNinetyDays', 0) or 0
+        backlog_90_plus = m.get('findingsInBacklogOverNinetyDays', 0) or 0
+        total = backlog_30_60 + backlog_60_90 + backlog_90_plus
+
+        series.append((dt, total))
+
+        if total > 0:
+            pct_90_series.append((dt, (backlog_90_plus / total) * 100))
+        else:
+            pct_90_series.append((dt, 0))
+
+    return series, pct_90_series
+
+backlog_series, pct_90_series = extract_backlog_series(metrics)
+
+# Tell the stories
+backlog_story = tell_metric_story(backlog_series, "Total Backlog", lower_is_better=True)
+print_metric_story(backlog_story)
+
+pct_90_story = tell_metric_story(pct_90_series, "Backlog % in 90+ Days", lower_is_better=True)
+print_metric_story(pct_90_story)
+```
+
+**6.2 The Aging Story - How Findings Move Through Buckets**
+
+The real story is in how findings flow through the aging buckets:
+
+```python
+def analyze_backlog_flow(metrics):
+    """
+    Analyze how findings flow through backlog aging buckets.
+    This tells us about remediation velocity.
+    """
+    print("\nBACKLOG AGING FLOW OVER TIME:")
+    print(f"{'Date':<12} {'30-60d':>8} {'60-90d':>8} {'90+d':>8} {'Total':>8} {'%90+':>7}")
+    print("-" * 55)
+
+    for m in metrics[::max(1, len(metrics)//10)]:  # Sample 10 points
+        date = m['commitDateTime'][:10]
+        b30 = m.get('findingsInBacklogBetweenThirtyAndSixtyDays', 0) or 0
+        b60 = m.get('findingsInBacklogBetweenSixtyAndNinetyDays', 0) or 0
+        b90 = m.get('findingsInBacklogOverNinetyDays', 0) or 0
+        total = b30 + b60 + b90
+        pct_90 = (b90 / total * 100) if total > 0 else 0
+
+        print(f"{date:<12} {b30:>8.0f} {b60:>8.0f} {b90:>8.0f} {total:>8.0f} {pct_90:>6.1f}%")
+
+    # Tell the flow story
+    first = metrics[0]
+    last = metrics[-1]
+
+    first_total = ((first.get('findingsInBacklogBetweenThirtyAndSixtyDays', 0) or 0) +
+                   (first.get('findingsInBacklogBetweenSixtyAndNinetyDays', 0) or 0) +
+                   (first.get('findingsInBacklogOverNinetyDays', 0) or 0))
+    last_total = ((last.get('findingsInBacklogBetweenThirtyAndSixtyDays', 0) or 0) +
+                  (last.get('findingsInBacklogBetweenSixtyAndNinetyDays', 0) or 0) +
+                  (last.get('findingsInBacklogOverNinetyDays', 0) or 0))
+
+    first_90_pct = ((first.get('findingsInBacklogOverNinetyDays', 0) or 0) / first_total * 100) if first_total > 0 else 0
+    last_90_pct = ((last.get('findingsInBacklogOverNinetyDays', 0) or 0) / last_total * 100) if last_total > 0 else 0
+
+    print(f"\nBACKLOG FLOW STORY:")
+    print(f"  Total backlog: {first_total:.0f} → {last_total:.0f} ({last_total - first_total:+.0f})")
+    print(f"  90+ day percentage: {first_90_pct:.1f}% → {last_90_pct:.1f}%")
+
+    if last_total < first_total and last_90_pct < first_90_pct:
+        print(f"  → EXCELLENT: Backlog shrinking AND aging improving")
+    elif last_total < first_total:
+        print(f"  → GOOD: Backlog shrinking (but watch the 90+ bucket)")
+    elif last_90_pct > first_90_pct + 10:
+        print(f"  → CONCERNING: Findings aging in place - remediation stalled")
+    elif last_total > first_total * 1.5:
+        print(f"  → CRITICAL: Backlog growing significantly")
+    else:
+        print(f"  → STABLE: Holding steady")
+
+analyze_backlog_flow(metrics)
+```
+
+**6.3 Key Backlog Story Patterns**
+
+| Pattern | What It Means | Action |
+|---------|---------------|--------|
+| 90+ bucket growing while others stable | Findings entering but not leaving | Remediation stalled - need to clear old items |
+| All buckets shrinking | Active remediation across the board | Continue approach |
+| 30-60 bucket spikes, others stable | New findings discovered | Normal - watch if they flow to 90+ |
+| 90+ percentage increasing over time | Systemic remediation failure | Emergency intervention needed |
+| Volatile backlog with no trend | Reactive approach | Need systematic remediation process |
+
+**6.4 Grading (Informed by Story)**
+
+| Grade | Criteria |
+|-------|----------|
+| A | Backlog declining AND 90+ percentage < 30% |
+| B | Backlog stable AND 90+ percentage < 50% |
+| C | Backlog stable OR slowly growing, 90+ percentage 50-70% |
+| D | Backlog growing AND 90+ percentage > 70% |
+| F | Rapid backlog growth OR 90+ percentage > 85% with no improvement trend |
+
+### STEP 7: Edit Type Analysis - The Patching Behavior Story
+
+Edits tell the story of **how** you're patching, not just **that** you're patching. Are you making meaningful changes, or churning without impact?
+
+**7.1 Tell the Edit Behavior Story**
+
+```python
+from collections import Counter, defaultdict
+
 with open('/tmp/edits.json') as f:
     data = json.load(f)
 edits = data['data']['titlePage']['content']
 
-from collections import Counter
+# Sort edits by date
+edits.sort(key=lambda x: x.get('commitDateTime', ''))
 
-edit_types = Counter(e['editType'] for e in edits)
-same_edits = sum(1 for e in edits if e['sameEdit'])
-different_edits = len(edits) - same_edits
+def analyze_edit_story(edits):
+    """
+    Analyze the story of patching behavior over time.
+    """
+    # Group edits by month for trend analysis
+    by_month = defaultdict(lambda: {'total': 0, 'same': 0, 'different': 0,
+                                     'create': 0, 'update': 0, 'delete': 0})
 
-print(f"Total Edits: {len(edits)}")
-print(f"\nEdit Type Breakdown:")
-for et, count in edit_types.items():
-    pct = (count / len(edits)) * 100
-    print(f"  {et}: {count:,} ({pct:.1f}%)")
+    for e in edits:
+        month = e.get('commitDateTime', '')[:7]  # YYYY-MM
+        by_month[month]['total'] += 1
+        if e.get('sameEdit'):
+            by_month[month]['same'] += 1
+        else:
+            by_month[month]['different'] += 1
 
-print(f"\nSame vs Different:")
-print(f"  Same version: {same_edits:,} ({same_edits/len(edits)*100:.1f}%)")
-print(f"  Different version: {different_edits:,} ({different_edits/len(edits)*100:.1f}%)")
+        edit_type = e.get('editType', 'UNKNOWN')
+        if edit_type == 'CREATE':
+            by_month[month]['create'] += 1
+        elif edit_type == 'UPDATE':
+            by_month[month]['update'] += 1
+        elif edit_type == 'DELETE':
+            by_month[month]['delete'] += 1
+
+    print("PATCHING BEHAVIOR OVER TIME:")
+    print(f"{'Month':<10} {'Total':>7} {'Same%':>7} {'Diff%':>7} {'CREATE':>8} {'UPDATE':>8} {'DELETE':>8}")
+    print("-" * 65)
+
+    months = sorted(by_month.keys())
+    for month in months:
+        m = by_month[month]
+        same_pct = (m['same'] / m['total'] * 100) if m['total'] > 0 else 0
+        diff_pct = (m['different'] / m['total'] * 100) if m['total'] > 0 else 0
+        print(f"{month:<10} {m['total']:>7} {same_pct:>6.1f}% {diff_pct:>6.1f}% {m['create']:>8} {m['update']:>8} {m['delete']:>8}")
+
+    # Overall story
+    total = len(edits)
+    same_total = sum(1 for e in edits if e.get('sameEdit'))
+    create_total = sum(1 for e in edits if e.get('editType') == 'CREATE')
+    delete_total = sum(1 for e in edits if e.get('editType') == 'DELETE')
+
+    print(f"\nPATCHING BEHAVIOR STORY:")
+    print(f"  Total edits: {total:,}")
+    print(f"  Same-version edits: {same_total:,} ({same_total/total*100:.1f}%)")
+    print(f"  Different-version edits: {total - same_total:,} ({(total-same_total)/total*100:.1f}%)")
+    print(f"  CREATE vs DELETE ratio: {create_total:,} vs {delete_total:,}")
+
+    # Trend in same-version percentage
+    if len(months) >= 2:
+        first_months = months[:len(months)//2]
+        last_months = months[len(months)//2:]
+
+        first_same_pct = sum(by_month[m]['same'] for m in first_months) / sum(by_month[m]['total'] for m in first_months) * 100
+        last_same_pct = sum(by_month[m]['same'] for m in last_months) / sum(by_month[m]['total'] for m in last_months) * 100
+
+        print(f"\n  EFFICIENCY TREND:")
+        print(f"    First half same%: {first_same_pct:.1f}%")
+        print(f"    Second half same%: {last_same_pct:.1f}%")
+
+        if last_same_pct < first_same_pct - 5:
+            print(f"    → IMPROVING: More meaningful patches over time")
+        elif last_same_pct > first_same_pct + 5:
+            print(f"    → DEGRADING: More churn, less impact over time")
+        else:
+            print(f"    → STABLE: Consistent patching behavior")
+
+    # Growth story
+    if create_total > delete_total * 1.5:
+        print(f"\n  GROWTH STORY: Adding packages faster than removing ({create_total} vs {delete_total})")
+        print(f"    → Attack surface expanding")
+    elif delete_total > create_total:
+        print(f"\n  GROWTH STORY: Removing more than adding ({delete_total} vs {create_total})")
+        print(f"    → Attack surface contracting (good)")
+    else:
+        print(f"\n  GROWTH STORY: Balanced adds/removes")
+        print(f"    → Controlled growth")
+
+analyze_edit_story(edits)
 ```
 
-**7.2 Interpret Edit Types**
+**7.2 Key Edit Story Patterns**
 
-**Red Flags:**
-- >50% same version edits: Wasting effort
-- CREATE > DELETE: Growing attack surface uncontrolled
-- High activity + negative PES: Busy work without benefit
+| Pattern | What It Means | Action |
+|---------|---------------|--------|
+| Same% declining over time | Learning - patches getting more targeted | Continue improvement |
+| Same% increasing over time | Regression - more churn, less impact | Review patch selection criteria |
+| CREATE >> DELETE | Uncontrolled growth | Implement removal discipline |
+| DELETE >> CREATE | Active pruning | Good - may indicate cleanup initiative |
+| High volume + high same% | Busy work | Stop and reassess what's being patched |
+| Low volume + high different% | Selective, meaningful patches | Ideal state |
 
-**Good Patterns:**
-- <30% same version edits
-- CREATE ≈ DELETE (controlled growth)
-- High different version % + positive PES
+**7.3 Grading (Informed by Story)**
+
+| Grade | Criteria |
+|-------|----------|
+| A | Same% < 30% AND declining trend AND CREATE ≈ DELETE |
+| B | Same% 30-50% OR Same% < 30% but CREATE > DELETE |
+| C | Same% 50-66% with stable trend |
+| D | Same% > 66% OR Same% increasing significantly |
+| F | Same% > 80% OR CREATE >> DELETE with high volume |
 
 ### STEP 8: Package Family Remediation Analysis
 
@@ -997,11 +1833,12 @@ with open('/tmp/patch_recommendations.json', 'w') as f:
     json.dump(recommendations, f, indent=2)
 ```
 
-### STEP 9: CVE Age Analysis
+### STEP 9: CVE Age Analysis - The Technical Debt Story
 
-**9.1 Analyze CVE Ages**
+CVE age tells the story of **technical debt** - how long have known vulnerabilities been sitting unaddressed? This is where you find the skeletons in the closet.
 
-From `/tmp/findings.json`:
+**9.1 Tell the CVE Age Story**
+
 ```python
 from datetime import datetime
 
@@ -1009,116 +1846,427 @@ with open('/tmp/findings.json') as f:
     data = json.load(f)
 findings = data['data']['titlePage']['content']
 
-ages = []
-for finding in findings:
-    published = finding.get('publishedAt')
-    if published:
-        pub_dt = datetime.fromisoformat(published.replace('Z', '+00:00'))
-        age_days = (datetime.now() - pub_dt.replace(tzinfo=None)).days
-        ages.append({
-            'cve': finding.get('identifier'),
-            'severity': finding.get('severity'),
-            'age_days': age_days,
-            'age_years': age_days / 365
-        })
+def analyze_cve_age_story(findings):
+    """
+    Tell the story of how long CVEs have been present.
+    """
+    ages = []
+    now = datetime.now()
 
-# Sort by age
-ages.sort(key=lambda x: x['age_days'], reverse=True)
+    for finding in findings:
+        published = finding.get('publishedAt')
+        if published:
+            pub_dt = datetime.fromisoformat(published.replace('Z', '+00:00')).replace(tzinfo=None)
+            age_days = (now - pub_dt).days
+            ages.append({
+                'cve': finding.get('identifier'),
+                'severity': finding.get('severity'),
+                'age_days': age_days,
+                'age_years': age_days / 365,
+                'published': pub_dt
+            })
 
-print("Oldest CVEs Still Present:")
-for item in ages[:10]:
-    print(f"  {item['cve']} ({item['severity']}): {item['age_years']:.1f} years old")
+    if not ages:
+        print("No CVEs with published dates found")
+        return
 
-# Distribution
-under_1yr = sum(1 for a in ages if a['age_days'] < 365)
-under_2yr = sum(1 for a in ages if 365 <= a['age_days'] < 730)
-over_2yr = sum(1 for a in ages if a['age_days'] >= 730)
+    # Sort by age
+    ages.sort(key=lambda x: x['age_days'], reverse=True)
 
-print(f"\nAge Distribution:")
-print(f"  <1 year: {under_1yr} ({under_1yr/len(ages)*100:.1f}%)")
-print(f"  1-2 years: {under_2yr} ({under_2yr/len(ages)*100:.1f}%)")
-print(f"  >2 years: {over_2yr} ({over_2yr/len(ages)*100:.1f}%)")
+    # Distribution
+    buckets = {
+        '<6 months': [a for a in ages if a['age_days'] < 180],
+        '6-12 months': [a for a in ages if 180 <= a['age_days'] < 365],
+        '1-2 years': [a for a in ages if 365 <= a['age_days'] < 730],
+        '2-3 years': [a for a in ages if 730 <= a['age_days'] < 1095],
+        '3+ years': [a for a in ages if a['age_days'] >= 1095]
+    }
+
+    print("CVE AGE STORY:")
+    print("=" * 60)
+    print(f"\nTotal CVEs analyzed: {len(ages)}")
+    print(f"Oldest CVE: {ages[0]['cve']} - {ages[0]['age_years']:.1f} years old ({ages[0]['severity']})")
+    print(f"Newest CVE: {ages[-1]['cve']} - {ages[-1]['age_days']} days old ({ages[-1]['severity']})")
+    print(f"Average age: {sum(a['age_days'] for a in ages) / len(ages) / 365:.1f} years")
+
+    print(f"\nAGE DISTRIBUTION:")
+    print(f"{'Bucket':<15} {'Count':>8} {'%':>8} {'Critical':>10} {'High':>8}")
+    print("-" * 55)
+
+    for bucket_name, bucket_cves in buckets.items():
+        count = len(bucket_cves)
+        pct = count / len(ages) * 100 if ages else 0
+        critical = sum(1 for c in bucket_cves if c['severity'] == 'CRITICAL')
+        high = sum(1 for c in bucket_cves if c['severity'] == 'HIGH')
+        print(f"{bucket_name:<15} {count:>8} {pct:>7.1f}% {critical:>10} {high:>8}")
+
+    # The story
+    old_cves = len(buckets['2-3 years']) + len(buckets['3+ years'])
+    old_pct = old_cves / len(ages) * 100 if ages else 0
+
+    critical_old = sum(1 for a in ages if a['age_days'] > 365 and a['severity'] == 'CRITICAL')
+
+    print(f"\nTHE TECHNICAL DEBT STORY:")
+    if old_pct > 50:
+        print(f"  ⚠️ SEVERE: {old_pct:.0f}% of CVEs are over 2 years old")
+        print(f"     This indicates systemic neglect of security updates")
+    elif old_pct > 25:
+        print(f"  ⚠️ CONCERNING: {old_pct:.0f}% of CVEs are over 2 years old")
+        print(f"     Technical debt is accumulating")
+    else:
+        print(f"  ✓ Manageable: Only {old_pct:.0f}% of CVEs are over 2 years old")
+
+    if critical_old > 0:
+        print(f"\n  🚨 CRITICAL FINDING: {critical_old} CRITICAL CVEs are over 1 year old")
+        print(f"     These should have been emergency priorities")
+        oldest_critical = [a for a in ages if a['severity'] == 'CRITICAL']
+        if oldest_critical:
+            print(f"     Oldest CRITICAL: {oldest_critical[0]['cve']} ({oldest_critical[0]['age_years']:.1f} years)")
+
+    # Ancient CVEs worth calling out
+    ancient = [a for a in ages if a['age_days'] > 1095]  # 3+ years
+    if ancient:
+        print(f"\n  ANCIENT CVEs (3+ years):")
+        for a in ancient[:5]:
+            print(f"    • {a['cve']} ({a['severity']}): {a['age_years']:.1f} years")
+        if len(ancient) > 5:
+            print(f"    ... and {len(ancient) - 5} more")
+
+    return ages
+
+ages = analyze_cve_age_story(findings)
 ```
 
-**9.2 Interpret CVE Ages**
+**9.2 The Age Story Patterns**
 
-**Red Flags:**
-- CRITICAL CVEs >1 year old
-- >50% of CVEs >1 year old
-- CVEs >3 years old present
+| Pattern | What It Means | Action |
+|---------|---------------|--------|
+| Majority < 1 year | Active scanning, normal discovery | Good - maintain velocity |
+| Growing 2+ year bucket | CVEs aging out, not being fixed | Need dedicated cleanup sprint |
+| CRITICAL CVEs > 1 year | Failed triage process | Emergency remediation |
+| Even distribution | Steady state without progress | Need remediation velocity increase |
+| Spike in recent CVEs | Major discovery event | Normal - ensure they don't age |
 
-**Indicates:**
-- Infrequent patching
-- Packages stuck on old versions
-- Technical debt accumulation
+**9.3 Grading (Informed by Story)**
 
-### STEP 10: Package Growth Analysis
+| Grade | Criteria |
+|-------|----------|
+| A | No CVEs > 2 years AND no CRITICAL > 1 year |
+| B | < 10% CVEs > 2 years AND no CRITICAL > 1 year |
+| C | < 25% CVEs > 2 years OR a few old CRITICAL being worked |
+| D | > 25% CVEs > 2 years OR CRITICAL > 2 years |
+| F | > 50% CVEs > 2 years OR multiple ancient CRITICAL |
 
-**10.1 Track Package Count**
+### STEP 10: Package Growth Analysis - The Attack Surface Story
+
+Package count tells the story of your **attack surface** - is it expanding or contracting? Growth isn't inherently bad, but uncontrolled growth with stagnant remediation is dangerous.
+
+**10.1 Tell the Package Growth Story**
 
 ```python
-pkg_data = [(m['commitDateTime'][:10], m['packages']) for m in metrics]
-pkg_sorted = sorted(pkg_data, key=lambda x: x[0])
-
-print("Package Count Trajectory:")
-for date, count in pkg_sorted:
-    print(f"  {date}: {count:,} packages")
-
-# Calculate growth
-growth = pkg_sorted[-1][1] - pkg_sorted[0][1]
-growth_pct = (growth / pkg_sorted[0][1] * 100)
-print(f"\nPackage Growth: +{growth:,} ({growth_pct:.1f}%)")
+packages_series = extract_time_series(metrics, 'packages')
+packages_story = tell_metric_story(packages_series, "Package Count", lower_is_better=True)
+print_metric_story(packages_story)
 ```
 
-**10.2 Interpret Package Growth**
+**10.2 The Growth vs Security Story**
 
-- Controlled growth (<10% over 6 months): ✓ Good
-- Moderate growth (10-30%): ○ Acceptable
-- High growth (>30%): ✗ Concerning
-- Very high growth (>100%): ✗✗ Red flag
+The real insight comes from correlating package growth with findings:
 
-**Correlate with Findings:**
-- Package growth > findings growth: Improving (good)
-- Package growth = findings growth: Stable (neutral)
-- Package growth < findings growth: Degrading (bad)
+```python
+def analyze_growth_vs_security(metrics):
+    """
+    Tell the story of how package growth relates to security outcomes.
+    """
+    first = metrics[0]
+    last = metrics[-1]
 
-### STEP 11: Synthesize Findings
+    # Package growth
+    pkg_start = first.get('packages', 0)
+    pkg_end = last.get('packages', 0)
+    pkg_change = pkg_end - pkg_start
+    pkg_change_pct = (pkg_change / pkg_start * 100) if pkg_start else 0
 
-**11.1 Calculate Overall Grade**
+    # Findings growth
+    find_start = first.get('totalFindings', 0)
+    find_end = last.get('totalFindings', 0)
+    find_change = find_end - find_start
+    find_change_pct = (find_change / find_start * 100) if find_start else 0
 
-Use this rubric:
+    # Vulnerable percentage
+    vuln_pct_start = (find_start / pkg_start * 100) if pkg_start else 0
+    vuln_pct_end = (find_end / pkg_end * 100) if pkg_end else 0
 
-| Category | Weight | Grade Criteria |
-|----------|--------|----------------|
-| PES | 30% | Avg PES: >1=A, 0-1=B, -1-0=C, -2--1=D, <-2=F |
-| Findings Trend | 25% | Decreasing=A, Stable=C, Increasing=F |
-| Backlog | 20% | <30% in 90+d=A, 30-50%=C, >70%=F |
-| RPS Trend | 15% | Decreasing=A, Stable=C, Increasing=F |
-| Edit Efficiency | 10% | <30% same=A, 30-50%=C, >66%=F |
+    print("\nGROWTH vs SECURITY STORY:")
+    print("=" * 60)
+    print(f"\n  PACKAGES:")
+    print(f"    Start: {pkg_start:,}")
+    print(f"    End: {pkg_end:,}")
+    print(f"    Change: {pkg_change:+,} ({pkg_change_pct:+.1f}%)")
 
-**11.2 Identify Root Causes**
+    print(f"\n  FINDINGS:")
+    print(f"    Start: {find_start:,}")
+    print(f"    End: {find_end:,}")
+    print(f"    Change: {find_change:+,} ({find_change_pct:+.1f}%)")
 
-Common patterns:
+    print(f"\n  VULNERABILITY DENSITY:")
+    print(f"    Start: {vuln_pct_start:.2f}% of packages vulnerable")
+    print(f"    End: {vuln_pct_end:.2f}% of packages vulnerable")
+    print(f"    Change: {vuln_pct_end - vuln_pct_start:+.2f}pp")
 
-**Pattern 1: High Activity, Negative PES**
-- Likely: Too many "same version" edits
-- Likely: Not targeting vulnerable packages
-- Fix: Stop re-evaluation churn, vulnerability-driven patching
+    # The story
+    print(f"\n  THE STORY:")
+    if pkg_change_pct > 0 and find_change_pct < 0:
+        print(f"  ✓ EXCELLENT: Growing package base ({pkg_change_pct:+.1f}%) with")
+        print(f"    DECLINING vulnerabilities ({find_change_pct:+.1f}%)")
+        print(f"    → Security improving faster than growth")
+    elif pkg_change_pct > 0 and find_change_pct > 0 and find_change_pct < pkg_change_pct:
+        print(f"  ○ GOOD: Packages grew {pkg_change_pct:+.1f}%, findings grew {find_change_pct:+.1f}%")
+        print(f"    → Keeping pace, but watch the trend")
+    elif pkg_change_pct > 0 and find_change_pct > pkg_change_pct:
+        print(f"  ⚠️ CONCERNING: Findings growing FASTER than packages")
+        print(f"    Packages: {pkg_change_pct:+.1f}%, Findings: {find_change_pct:+.1f}%")
+        print(f"    → Security degrading despite (or because of) growth")
+    elif pkg_change_pct < 0 and find_change_pct < 0:
+        print(f"  ✓ GOOD: Controlled contraction - reducing surface AND vulnerabilities")
+    elif pkg_change_pct < 0 and find_change_pct > 0:
+        print(f"  🚨 CRITICAL: Packages declining but findings increasing")
+        print(f"    → Removing packages but not the vulnerable ones")
+    else:
+        print(f"  ○ STABLE: Minimal change in both dimensions")
 
-**Pattern 2: Growing Findings Despite Patches**
-- Likely: Package growth > patch rate
-- Likely: Patches not targeting CVEs
-- Fix: Halt package growth, prioritize vulnerable packages
+    # Calculate velocity correlation
+    print(f"\n  VELOCITY COMPARISON:")
+    days = (datetime.fromisoformat(last['commitDateTime'].replace('Z', '')).replace(tzinfo=None) -
+            datetime.fromisoformat(first['commitDateTime'].replace('Z', '')).replace(tzinfo=None)).days or 1
+    pkg_per_month = pkg_change / days * 30
+    find_per_month = find_change / days * 30
+    print(f"    Package velocity: {pkg_per_month:+.1f}/month")
+    print(f"    Findings velocity: {find_per_month:+.1f}/month")
 
-**Pattern 3: High RPS, Negative PES**
-- Likely: Decentralized patching without consolidation
-- Fix: Version pinning, coordinated upgrades
+    return {
+        'pkg_change_pct': pkg_change_pct,
+        'find_change_pct': find_change_pct,
+        'vuln_density_change': vuln_pct_end - vuln_pct_start
+    }
 
-**Pattern 4: Old CVEs Persist**
-- Likely: Technical debt, stuck on old versions
-- Fix: Emergency remediation, dependency modernization
+analyze_growth_vs_security(metrics)
+```
 
-### STEP 12: Generate Report
+**10.3 Key Growth Story Patterns**
+
+| Pattern | What It Means | Action |
+|---------|---------------|--------|
+| Packages ↑, Findings ↓ | Security improving as you grow | Ideal - maintain |
+| Packages ↑, Findings ↑ (slower) | Keeping pace | Good - improve remediation |
+| Packages ↑, Findings ↑ (faster) | Losing ground | Halt growth, focus on security |
+| Packages ↓, Findings ↓ | Controlled reduction | Good cleanup effort |
+| Packages ↓, Findings ↑ | Removing wrong things | Review what's being cut |
+
+**10.4 Grading (Informed by Story)**
+
+| Grade | Criteria |
+|-------|----------|
+| A | Findings declining regardless of package growth |
+| B | Findings growing slower than packages (improving density) |
+| C | Findings and packages growing at similar rates |
+| D | Findings growing faster than packages |
+| F | Findings exploding OR packages declining while findings grow |
+
+### STEP 11: Synthesize the Complete Story
+
+Now we bring all the individual stories together into a coherent narrative.
+
+**11.1 The Overall Narrative**
+
+```python
+def synthesize_story(metrics, edits, findings):
+    """
+    Bring all stories together into a coherent narrative.
+    """
+    # Gather all story elements
+    pes_series = extract_time_series(metrics, 'patchEfficacyScore')
+    rps_series = extract_time_series(metrics, 'rpsScore')
+    findings_series = extract_time_series(metrics, 'totalFindings')
+    packages_series = extract_time_series(metrics, 'packages')
+
+    pes_story = tell_metric_story(pes_series, "PES", lower_is_better=False)
+    rps_story = tell_metric_story(rps_series, "RPS", lower_is_better=True)
+    findings_story = tell_metric_story(findings_series, "Findings", lower_is_better=True)
+    packages_story = tell_metric_story(packages_series, "Packages", lower_is_better=True)
+
+    print("\n" + "=" * 70)
+    print("  THE COMPLETE SECURITY STORY")
+    print("=" * 70)
+
+    # Chapter 1: Where we started
+    print("\n📖 CHAPTER 1: THE BEGINNING")
+    print("-" * 40)
+    first = metrics[0]
+    first_date = first['commitDateTime'][:10]
+    print(f"   On {first_date}, this dataset had:")
+    print(f"   • {first.get('packages', 0):,} packages")
+    print(f"   • {first.get('totalFindings', 0):,} findings ({first.get('criticalFindings', 0)} critical)")
+    print(f"   • PES of {first.get('patchEfficacyScore', 0):.2f}")
+    print(f"   • RPS of {first.get('rpsScore', 0):.1f}")
+
+    # Chapter 2: The journey
+    print("\n📖 CHAPTER 2: THE JOURNEY")
+    print("-" * 40)
+
+    # Describe each metric's journey
+    for story in [pes_story, findings_story, rps_story]:
+        name = story['metric_name']
+        arc = story['story_arc']
+        print(f"\n   {name}:")
+        print(f"   {arc['journey']['narrative']} over {arc['journey']['total_days']} days")
+        if story.get('chapter_summary'):
+            for ch in story['chapter_summary'][:2]:
+                print(f"     • {ch}")
+
+    # Chapter 3: Key events
+    print("\n📖 CHAPTER 3: THE TURNING POINTS")
+    print("-" * 40)
+
+    all_events = []
+    for story in [pes_story, findings_story, rps_story]:
+        for event in story.get('investigate', []):
+            all_events.append({
+                'metric': story['metric_name'],
+                'date': event['date'],
+                'event': event['event'],
+                'prompt': event['prompt']
+            })
+
+    # Sort by date
+    all_events.sort(key=lambda x: x['date'])
+
+    if all_events:
+        for event in all_events[:5]:
+            print(f"   📍 {event['date']} ({event['metric']})")
+            print(f"      {event['event']}")
+            print(f"      → {event['prompt']}")
+    else:
+        print("   No significant turning points detected")
+
+    # Chapter 4: Where we are now
+    print("\n📖 CHAPTER 4: THE CURRENT STATE")
+    print("-" * 40)
+    last = metrics[-1]
+    last_date = last['commitDateTime'][:10]
+    print(f"   As of {last_date}:")
+    print(f"   • {last.get('packages', 0):,} packages")
+    print(f"   • {last.get('totalFindings', 0):,} findings ({last.get('criticalFindings', 0)} critical)")
+    print(f"   • PES of {last.get('patchEfficacyScore', 0):.2f}")
+    print(f"   • RPS of {last.get('rpsScore', 0):.1f}")
+
+    # Net changes
+    print(f"\n   THE BOTTOM LINE:")
+    pkg_change = last.get('packages', 0) - first.get('packages', 0)
+    find_change = last.get('totalFindings', 0) - first.get('totalFindings', 0)
+    pes_change = last.get('patchEfficacyScore', 0) - first.get('patchEfficacyScore', 0)
+    rps_change = last.get('rpsScore', 0) - first.get('rpsScore', 0)
+
+    print(f"   • Packages: {pkg_change:+,}")
+    print(f"   • Findings: {find_change:+,}")
+    print(f"   • PES: {pes_change:+.2f}")
+    print(f"   • RPS: {rps_change:+.1f}")
+
+    # Chapter 5: The verdict
+    print("\n📖 CHAPTER 5: THE VERDICT")
+    print("-" * 40)
+
+    # Count positives and negatives
+    positives = []
+    negatives = []
+
+    if pes_change > 0:
+        positives.append("Patch effectiveness improving")
+    elif pes_change < -0.5:
+        negatives.append("Patch effectiveness declining")
+
+    if find_change < 0:
+        positives.append("Vulnerabilities decreasing")
+    elif find_change > 0:
+        negatives.append("Vulnerabilities increasing")
+
+    if rps_change < 0:
+        positives.append("Version fragmentation improving")
+    elif rps_change > 2:
+        negatives.append("Version fragmentation worsening")
+
+    if pes_story['velocity'].get('velocity_story', '').startswith('Recent improvement'):
+        positives.append("Recent momentum is positive")
+    elif 'reversal' in pes_story['velocity'].get('velocity_story', '').lower():
+        negatives.append("Recent momentum has stalled")
+
+    print("   WHAT'S WORKING:")
+    for p in positives or ["Nothing stands out as improving"]:
+        print(f"   ✓ {p}")
+
+    print("\n   WHAT NEEDS ATTENTION:")
+    for n in negatives or ["No critical issues identified"]:
+        print(f"   ⚠️ {n}")
+
+    # Overall assessment
+    if len(positives) >= 3 and len(negatives) == 0:
+        verdict = "EXCELLENT - Strong positive trajectory"
+    elif len(positives) > len(negatives):
+        verdict = "GOOD - More wins than losses"
+    elif len(positives) == len(negatives):
+        verdict = "MIXED - Progress in some areas, regression in others"
+    elif len(negatives) > len(positives):
+        verdict = "CONCERNING - More losses than wins"
+    else:
+        verdict = "CRITICAL - Significant intervention needed"
+
+    print(f"\n   OVERALL: {verdict}")
+
+    return {
+        'stories': {'pes': pes_story, 'rps': rps_story, 'findings': findings_story, 'packages': packages_story},
+        'positives': positives,
+        'negatives': negatives,
+        'verdict': verdict
+    }
+
+synthesis = synthesize_story(metrics, edits, findings)
+```
+
+**11.2 Root Cause Analysis Through the Story Lens**
+
+Common story patterns and what they reveal:
+
+**Pattern 1: "The Busy Without Impact Story"**
+- High patch activity + negative PES + stable/growing findings
+- Story: "We're patching a lot but not the right things"
+- Root cause: Patches targeting non-vulnerable packages
+- Fix: Vulnerability-driven patch prioritization
+
+**Pattern 2: "The Outrunning Story"**
+- Package growth > remediation velocity
+- Story: "We're adding packages faster than we can secure them"
+- Root cause: No growth controls, reactive security
+- Fix: Slow growth, proactive security reviews
+
+**Pattern 3: "The Fragmentation Story"**
+- RPS increasing + PES negative
+- Story: "We're creating version chaos without benefit"
+- Root cause: Decentralized patching without coordination
+- Fix: Version pinning, coordinated upgrade campaigns
+
+**Pattern 4: "The Neglect Story"**
+- High % of CVEs > 2 years old + stable findings
+- Story: "Vulnerabilities are discovered but never fixed"
+- Root cause: No remediation accountability
+- Fix: SLA enforcement, backlog grooming
+
+**Pattern 5: "The Recovery Story"**
+- Past chapters of decline + recent improvement
+- Story: "Things got bad, but we turned it around"
+- Root cause: Policy change or new tooling
+- Success: Document and replicate what worked
+
+### STEP 12: Generate Report - Telling the Complete Story
 
 **12.1 Report Generation Script**
 
@@ -1950,6 +3098,6 @@ curl -s "http://localhost:1702/api/v1/db/findingData/query?size=500"
 
 ---
 
-**Document Version:** 1.0
-**Last Updated:** January 18, 2026
+**Document Version:** 2.0
+**Last Updated:** January 19, 2026
 **Maintainer:** PatchFox Team
