@@ -281,6 +281,10 @@ def extract_time_series(metrics: List[Dict], field: str) -> List[Tuple[datetime,
 def get_story_arc(series: List[Tuple[datetime, float]]) -> Dict:
     """
     Extract the narrative arc: where we started, where we are, and the journey between.
+
+    Handles edge cases:
+    - Datasets starting from zero (uses first non-zero value for percentage calc)
+    - Very short time series
     """
     if len(series) < 2:
         return {'error': 'Insufficient data for story'}
@@ -295,10 +299,39 @@ def get_story_arc(series: List[Tuple[datetime, float]]) -> Dict:
 
     # Calculate total change
     total_change = end_value - start_value
-    total_change_pct = (total_change / start_value * 100) if start_value else 0
 
-    # Determine the overall narrative
-    if abs(total_change_pct) < 10:
+    # Handle datasets starting from zero - find first meaningful baseline
+    # This is common for new datasets where metrics accumulate over time
+    if start_value == 0:
+        # Find first non-zero value as baseline for percentage calculation
+        baseline_value = None
+        baseline_date = None
+        for dt, val in series:
+            if val > 0:
+                baseline_value = val
+                baseline_date = dt
+                break
+
+        if baseline_value and baseline_value != end_value:
+            # Calculate change from first meaningful value
+            total_change_pct = ((end_value - baseline_value) / baseline_value * 100)
+            pct_note = f" (from first non-zero: {baseline_date.strftime('%Y-%m-%d')})"
+        else:
+            total_change_pct = 0
+            pct_note = " (started from zero)"
+    else:
+        total_change_pct = (total_change / start_value * 100)
+        pct_note = ""
+
+    # Determine the overall narrative based on absolute change when starting from zero
+    if start_value == 0:
+        if end_value == 0:
+            narrative = "no activity"
+        elif end_value > 0:
+            narrative = "grew from nothing"
+        else:
+            narrative = "declined into negative"
+    elif abs(total_change_pct) < 10:
         narrative = "relatively stable"
     elif total_change > 0:
         narrative = "trending upward"
@@ -325,6 +358,7 @@ def get_story_arc(series: List[Tuple[datetime, float]]) -> Dict:
             'total_days': total_days,
             'total_change': total_change,
             'total_change_pct': total_change_pct,
+            'pct_note': pct_note,
             'narrative': narrative
         }
     }
@@ -730,6 +764,9 @@ def print_metric_story(story: Dict):
 
 ### STEP 1: Initial Data Collection
 
+> **IMPORTANT: API Pagination**
+> The Data Service API caps results at **1000 records per request**. Large datasets may have 7,000+ metrics records and 20,000+ edit records. Always use the pagination helper below for complete data.
+
 **1.1 Get Dataset Name**
 ```bash
 curl -s "http://localhost:1702/api/v1/db/dataset/query" | python3 -m json.tool | head -30
@@ -737,27 +774,95 @@ curl -s "http://localhost:1702/api/v1/db/dataset/query" | python3 -m json.tool |
 
 Extract `name` field from first dataset.
 
-**1.2 Fetch Dataset Metrics (Current)**
+**1.2 Fetch Dataset Metrics (Current) - WITH PAGINATION**
+
+First, check how many records exist:
 ```bash
-curl -s "http://localhost:1702/api/v1/db/datasetMetrics/query?datasetName={DATASET}&isCurrent=true" -o /tmp/metrics.json
+curl -s "http://localhost:1702/api/v1/db/datasetMetrics/query?datasetName={DATASET}&isCurrent=true&size=1" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f\"Total records: {d['data']['titlePage']['totalElements']}\")"
 ```
 
-**1.3 Fetch All Edits (6 months)**
+For small datasets (<1000 records), use:
+```bash
+curl -s "http://localhost:1702/api/v1/db/datasetMetrics/query?datasetName={DATASET}&isCurrent=true&sort=commitDateTime.asc&size=1000" -o /tmp/metrics.json
+```
+
+For large datasets (>1000 records), use this pagination script:
+```python
+import json
+import subprocess
+
+DATASET = "YOUR_DATASET_NAME"  # Replace with actual dataset name
+all_records = []
+page = 0
+page_size = 1000
+
+while True:
+    cmd = f'curl -s "http://localhost:1702/api/v1/db/datasetMetrics/query?datasetName={DATASET}&isCurrent=true&sort=commitDateTime.asc&size={page_size}&page={page}"'
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    data = json.loads(result.stdout)
+    records = data["data"]["titlePage"]["content"]
+    all_records.extend(records)
+    print(f"Page {page}: fetched {len(records)} records, total: {len(all_records)}")
+
+    if data["data"]["titlePage"]["last"]:
+        break
+    page += 1
+
+print(f"\nTotal fetched: {len(all_records)}")
+
+# Save in standard format for downstream analysis
+with open("/tmp/metrics.json", "w") as f:
+    json.dump({"data": {"titlePage": {"content": all_records}}}, f)
+```
+
+**1.3 Fetch All Edits (6 months) - WITH PAGINATION**
 
 Calculate 6 months ago date:
 ```python
 from datetime import datetime, timedelta
 six_months = (datetime.now() - timedelta(days=180)).strftime('%Y-%m-%dT%H:%M:%SZ')
+print(f"Date filter: {six_months}")
 ```
 
-Fetch edits:
-```bash
-curl -s "http://localhost:1702/api/v1/db/datasetMetrics/edit/query?datasetName={DATASET}&isCurrent=true&commitDateTime=gte.{DATE}&size=25000" -o /tmp/edits.json
+For large edit datasets, use pagination:
+```python
+import json
+import subprocess
+from datetime import datetime, timedelta
+
+DATASET = "YOUR_DATASET_NAME"  # Replace with actual dataset name
+date_filter = (datetime.now() - timedelta(days=180)).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+all_edits = []
+page = 0
+page_size = 1000
+
+while True:
+    cmd = f'curl -s "http://localhost:1702/api/v1/db/datasetMetrics/edit/query?datasetName={DATASET}&isCurrent=true&commitDateTime=gte.{date_filter}&size={page_size}&page={page}"'
+    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    data = json.loads(result.stdout)
+    records = data["data"]["titlePage"]["content"]
+    all_edits.extend(records)
+    print(f"Page {page}: fetched {len(records)} edits, total: {len(all_edits)}")
+
+    if data["data"]["titlePage"]["last"]:
+        break
+    page += 1
+
+print(f"\nTotal edits fetched: {len(all_edits)}")
+
+with open("/tmp/edits.json", "w") as f:
+    json.dump({"data": {"titlePage": {"content": all_edits}}}, f)
 ```
 
 **1.4 Fetch Finding Data**
 ```bash
-curl -s "http://localhost:1702/api/v1/db/findingData/query?size=500" -o /tmp/findings.json
+curl -s "http://localhost:1702/api/v1/db/findingData/query?size=5000" -o /tmp/findings.json
+```
+
+**1.5 Fetch Critical CVEs (for emergency check)**
+```bash
+curl -s "http://localhost:1702/api/v1/db/findingData/query?severity=CRITICAL&size=500" -o /tmp/critical_cves.json
 ```
 
 ### STEP 2: Dataset Composition Analysis
@@ -1335,7 +1440,71 @@ analyze_edit_story(edits)
 
 ### STEP 8: Package Family Remediation Analysis
 
-**8.1 Calculate Aggregate Remediation Potential**
+> **Prerequisites: This step requires direct database access**
+>
+> The queries in this step run against PostgreSQL directly. If you don't have database access, use the **REST API Alternative** below.
+>
+> **Database Connection:**
+> ```bash
+> # Default local connection
+> psql -h localhost -p 5432 -U patchfox -d patchfox
+>
+> # Or via docker
+> docker exec -it patchfox-postgres psql -U patchfox -d patchfox
+> ```
+
+#### REST API Alternative (No DB Access Required)
+
+If direct database access is unavailable, you can approximate this analysis using the REST API:
+
+```python
+import json
+from collections import defaultdict
+
+# Load the metrics we already have
+with open('/tmp/metrics.json') as f:
+    data = json.load(f)
+
+# Get the latest metrics record
+metrics = data['data']['titlePage']['content']
+latest = max(metrics, key=lambda x: x['commitDateTime'])
+
+# RPS indicates version fragmentation - a proxy for consolidation opportunity
+rps = latest.get('rpsScore', 0)
+packages = latest.get('packages', 0)
+packages_with_findings = latest.get('packagesWithFindings', 0)
+total_findings = latest.get('totalFindings', 0)
+
+print("PACKAGE FAMILY REMEDIATION (API APPROXIMATION)")
+print("=" * 50)
+print(f"RPS Score: {rps:.1f}")
+print(f"  - RPS > 15 indicates significant version fragmentation")
+print(f"  - Version consolidation can reduce both RPS and findings")
+print(f"\nTotal packages: {packages:,}")
+print(f"Packages with findings: {packages_with_findings:,} ({packages_with_findings/packages*100:.1f}%)")
+print(f"Total findings: {total_findings:,}")
+
+# Estimate consolidation opportunity based on RPS
+# Higher RPS = more versions = more consolidation potential
+if rps > 20:
+    print(f"\n>>> HIGH CONSOLIDATION OPPORTUNITY")
+    print(f"    RPS of {rps:.1f} suggests many packages exist in multiple versions.")
+    print(f"    Estimate: 40-60% of findings may be eliminable via version standardization.")
+elif rps > 10:
+    print(f"\n>>> MODERATE CONSOLIDATION OPPORTUNITY")
+    print(f"    RPS of {rps:.1f} suggests some version fragmentation.")
+    print(f"    Estimate: 20-40% of findings may be eliminable via version standardization.")
+else:
+    print(f"\n>>> LIMITED CONSOLIDATION OPPORTUNITY")
+    print(f"    RPS of {rps:.1f} suggests good version consolidation already.")
+    print(f"    Focus on upgrading rather than consolidating.")
+
+print("\n⚠️  For precise family-level analysis, run the SQL queries with direct DB access.")
+```
+
+---
+
+**8.1 Calculate Aggregate Remediation Potential** (Requires DB Access)
 
 First, get the headline number - how many CVE instances could be eliminated by standardizing on package versions you already use elsewhere.
 
@@ -3098,6 +3267,27 @@ curl -s "http://localhost:1702/api/v1/db/findingData/query?size=500"
 
 ---
 
-**Document Version:** 2.0
-**Last Updated:** January 19, 2026
+**Document Version:** 2.1
+**Last Updated:** January 20, 2026
 **Maintainer:** PatchFox Team
+
+---
+
+## Changelog
+
+### v2.1 (January 20, 2026)
+- **Step 1:** Added API pagination support for large datasets (>1000 records)
+  - Added pagination scripts for metrics and edits fetching
+  - Added Step 1.5 for critical CVE fetching
+- **Step 8:** Added REST API alternative for when direct database access is unavailable
+  - Added database connection instructions
+  - Added RPS-based approximation script
+- **Temporal Utilities:** Fixed divide-by-zero in `get_story_arc()` for datasets starting from zero
+  - Now finds first non-zero value as baseline for meaningful percentage calculations
+  - Added narrative handling for "grew from nothing" scenarios
+
+### v2.0 (January 19, 2026)
+- Major refactor to story-driven temporal analysis
+- Added Temporal Analysis Utilities section
+- Refactored all steps to use narrative framing
+- Added Step 12 for report generation
