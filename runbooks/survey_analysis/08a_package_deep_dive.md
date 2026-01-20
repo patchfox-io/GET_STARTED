@@ -13,6 +13,38 @@
 
 ---
 
+## ⚠️ CRITICAL: Current Dataset vs Historical Data ⚠️
+
+**The `package` table contains ALL packages ever seen by PatchFox (historical), not just packages in the current dataset state.**
+
+| Table/Field | Contains | Use For |
+|-------------|----------|---------|
+| `package` table (all rows) | ALL historical packages (e.g., 90,000+) | Finding-to-package joins |
+| `dataset_metrics.package_indexes` | Only CURRENT packages (e.g., 3,172) | Current state analysis |
+
+### The Mistake to Avoid
+
+```sql
+-- ❌ WRONG: Queries ALL historical packages
+SELECT p.name, COUNT(DISTINCT p.version) as versions
+FROM public.package p
+GROUP BY p.name;
+-- This might show 1,400+ "versions" that are actually historical package IDs!
+
+-- ✅ CORRECT: Queries only packages in CURRENT dataset
+SELECT p.name, COUNT(DISTINCT p.version) as versions
+FROM public.dataset_metrics dm,
+     unnest(dm.package_indexes) as pkg_id
+JOIN public.package p ON p.id = pkg_id
+WHERE dm.is_current = true
+GROUP BY p.name;
+-- This shows actual version fragmentation in the current state
+```
+
+**If you report version counts without joining to `package_indexes`, your numbers will be wildly inflated.**
+
+---
+
 ## Why This Step Matters
 
 The dataset-level metrics tell you "you have 13,000 findings." This step tells you:
@@ -147,7 +179,47 @@ ORDER BY total_findings DESC;
 
 ---
 
-## 8A.6 Build the Upgrade Matrix
+## 8A.6 Version Fragmentation Analysis (RPS Deep Dive)
+
+Analyze which packages have multiple versions in the **current** dataset state:
+
+```sql
+-- ✅ CORRECT: Version fragmentation in CURRENT dataset only
+-- Must join with package_indexes from dataset_metrics!
+SELECT
+    p.name as package_family,
+    p.type as ecosystem,
+    COUNT(DISTINCT p.version) as version_count,
+    COUNT(*) as instances,
+    array_agg(DISTINCT p.version ORDER BY p.version) as versions
+FROM public.dataset_metrics dm,
+     unnest(dm.package_indexes) as pkg_id
+JOIN public.package p ON p.id = pkg_id
+WHERE dm.is_current = true
+GROUP BY p.name, p.type
+HAVING COUNT(DISTINCT p.version) > 1
+ORDER BY version_count DESC
+LIMIT 20;
+```
+
+**Expected output:**
+```
+ package_family      | ecosystem | version_count | instances | versions
+---------------------+-----------+---------------+-----------+------------------
+ datawave-query-core | maven     |            77 |    136006 | {7.14.1,7.23.10,...}
+ spring-core         | maven     |             3 |      1847 | {5.3.21,5.3.39,6.1.0}
+```
+
+**Interpretation:**
+- `version_count`: Number of DISTINCT versions of this package in current state
+- `instances`: How many times packages with this name appear across all datasources
+- High `version_count` = consolidation opportunity (contributes to RPS score)
+
+**DO NOT** run this query without the `package_indexes` join - you'll get inflated historical counts!
+
+---
+
+## 8A.7 Build the Upgrade Matrix
 
 For each top package, document:
 
@@ -159,7 +231,7 @@ For each top package, document:
 
 ---
 
-## 8A.7 Identify Dead Repos for Archival
+## 8A.8 Identify Dead Repos for Archival
 
 ```sql
 -- Repos with high findings but likely abandoned

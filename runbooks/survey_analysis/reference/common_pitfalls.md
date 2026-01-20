@@ -131,6 +131,45 @@ def get_true_findings_count(metrics_record):
 
 **Similarly for severity buckets:** If `criticalFindingsInBacklog* > criticalFindings`, use the backlog sum.
 
+### 14. Querying Package Table Directly for Current State Analysis
+
+**Problem:** Running queries against `public.package` table without filtering to current dataset packages produces wildly inflated numbers.
+
+**Example of the mistake:**
+```sql
+-- ❌ WRONG: This queries ALL historical packages (e.g., 90,000+)
+SELECT p.name, COUNT(DISTINCT p.version) as version_count
+FROM public.package p
+GROUP BY p.name
+ORDER BY version_count DESC;
+-- Result: "datawave-query-core has 1,465 versions!" (WRONG)
+```
+
+**Reality:** The `package` table contains every package PatchFox has ever seen across all historical datasource events. The current dataset state only contains a subset (e.g., 3,172 packages stored in `dataset_metrics.package_indexes`).
+
+**Correct approach:**
+```sql
+-- ✅ CORRECT: Join with package_indexes to get CURRENT packages only
+SELECT p.name, COUNT(DISTINCT p.version) as version_count
+FROM public.dataset_metrics dm,
+     unnest(dm.package_indexes) as pkg_id
+JOIN public.package p ON p.id = pkg_id
+WHERE dm.is_current = true
+GROUP BY p.name
+ORDER BY version_count DESC;
+-- Result: "datawave-query-core has 77 versions" (CORRECT)
+```
+
+**When to use which:**
+| Query Type | Use Package Table Directly | Use package_indexes Join |
+|------------|---------------------------|--------------------------|
+| Finding analysis (CVE lookups) | ✅ Yes (via package_finding) | Not needed |
+| Version fragmentation (RPS) | ❌ No | ✅ Yes |
+| Current package count | ❌ No | ✅ Yes |
+| Historical trend analysis | ✅ Yes | Depends on use case |
+
+**The rule:** If you're analyzing the **current state** of the dataset (version counts, package inventory, RPS contributors), you MUST join with `package_indexes`. If you're analyzing **findings** (which are linked via `package_finding`), the direct join is fine because findings are only linked to packages that exist.
+
 ---
 
 ## Red Flags Checklist
@@ -146,3 +185,4 @@ Stop and investigate if you see:
 | CVEs > 5 years old | Abandoned remediation or blocked fixes |
 | Findings spiking | Major discovery event or new vulnerable dependency |
 | Backlog > Total Findings | Known bug - see pitfall #13, use larger value |
+| Version count > 100 for a package | Likely queried wrong table - see pitfall #14 |
