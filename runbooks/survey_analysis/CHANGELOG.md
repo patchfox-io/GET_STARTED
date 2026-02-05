@@ -4,6 +4,19 @@ All notable changes to the PatchFox Dataset Security Analysis Runbook.
 
 ---
 
+## [2.2] - February 5, 2026
+
+### Added
+- **Step 9A:** Shadow Findings Analysis - Zero-day exposure window
+  - Identifies vulnerabilities present in codebase BEFORE CVE publication
+  - Calculates "shadow window" between package commit and CVE published_at
+  - Shadow exposure distribution by severity
+  - Package-level shadow risk ranking
+  - Grading criteria for undetectable exposure periods
+  - Critical insight: reveals true security debt from undetectable vulnerabilities
+
+---
+
 ## [2.1] - January 20, 2026
 
 ### Added

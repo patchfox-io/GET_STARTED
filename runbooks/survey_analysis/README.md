@@ -97,6 +97,7 @@ This runbook treats your data as a **narrative** - identifying chapters, turning
 | 8 | Package Family Analysis | Consolidation opportunities | [08_package_family_analysis.md](./08_package_family_analysis.md) |
 | **8A** | **Package Deep Dive** | **CRITICAL: Specific upgrade paths** | [08a_package_deep_dive.md](./08a_package_deep_dive.md) |
 | 9 | CVE Age Analysis | Technical debt story | [09_cve_age_analysis.md](./09_cve_age_analysis.md) |
+| **9A** | **Shadow Findings Analysis** | **Zero-day exposure window** | [09a_shadow_findings_analysis.md](./09a_shadow_findings_analysis.md) |
 | 10 | Package Growth | Attack surface story | [10_package_growth_analysis.md](./10_package_growth_analysis.md) |
 | 11 | Synthesis | Combine all stories | [11_synthesis.md](./11_synthesis.md) |
 | 12 | Report Generation | Generate final report | [12_report_generation.md](./12_report_generation.md) |
