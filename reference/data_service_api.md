@@ -62,6 +62,31 @@ GET /api/v1/db/datasetMetrics/query?isCurrent=true&isForecastRecommendationsTake
 GET /api/v1/db/edit/query?isPfRecommendedEdit=true&isUserEdit=false
 ```
 
+**Performance Optimization - Exclude Payload (datasourceEvent only):**
+
+The `datasourceEvent` table stores compressed SBOM payloads that are automatically decompressed and deserialized in query results. For queries that only need metadata (counts, status checks, etc.), use `excludePayload=true` to skip payload processing and dramatically improve performance.
+
+```http
+# Without excludePayload - returns full decompressed SBOM data (~5+ seconds for 20 records)
+GET /api/v1/db/datasourceEvent/query?status=PROCESSING
+
+# With excludePayload=true - returns only metadata (~50ms for 20 records)
+GET /api/v1/db/datasourceEvent/query?status=PROCESSING&excludePayload=true
+```
+
+**Default behavior:** `excludePayload=false` (payload IS included)
+
+**When to use `excludePayload=true`:**
+- Counting records by status or enrichment flags
+- Checking processing progress
+- Monitoring dashboards that only need totalElements
+- Any query where you don't need the actual SBOM data
+
+**When to omit (use default):**
+- When you need the actual package/vulnerability data
+- When displaying SBOM contents
+- When analyzing package dependencies
+
 #### Complex Query Examples
 
 **Find vulnerable npm packages:**
