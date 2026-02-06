@@ -2858,6 +2858,44 @@ print(f"Analysis complete. Grade: {grade}")
 
 ## 6. Common Pitfalls
 
+### ⚠️ CRITICAL GOTCHA #0: Package and Finding Tables Contain Historical Data
+
+**THIS IS THE #1 MISTAKE. DO NOT QUERY THE `package` OR `finding` TABLES DIRECTLY FOR CURRENT STATE ANALYSIS.**
+
+The `package` and `finding` tables are append-only and contain **every package and finding PatchFox has ever seen**, not just what's currently in the dataset.
+
+| Table/Query | What It Contains | Result |
+|-------------|------------------|--------|
+| `SELECT * FROM package` | **ALL packages EVER seen** (historical) | **WRONG - massively inflated** |
+| `SELECT * FROM finding` | **ALL findings EVER seen** (historical) | **WRONG - massively inflated** |
+| `dataset_metrics.package_indexes` | Only packages in **CURRENT** state | **CORRECT** |
+| `dataset_metrics.finding_indexes` | Only findings in **CURRENT** state | **CORRECT** |
+
+**Example:** A dataset with 3,000 current packages might have 90,000+ historical package records. Querying the package table directly will show 136,006 instances when there are only 251 datasources.
+
+**The ONLY Correct Way:**
+```sql
+-- ✅ CORRECT: Join with package_indexes for current state
+SELECT p.name, COUNT(DISTINCT p.version) as versions
+FROM public.dataset_metrics dm,
+     unnest(dm.package_indexes) as pkg_id
+JOIN public.package p ON p.id = pkg_id
+WHERE dm.is_current = true
+GROUP BY p.name;
+
+-- ✅ CORRECT: Join with finding_indexes for current state
+SELECT COUNT(DISTINCT f.id) as current_findings
+FROM public.dataset_metrics dm,
+     unnest(dm.finding_indexes) as finding_id
+JOIN public.finding f ON f.id = finding_id
+WHERE dm.is_current = true;
+```
+
+**Checklist:**
+- [ ] Am I joining with `dataset_metrics.package_indexes` or `finding_indexes`?
+- [ ] Am I filtering `WHERE dm.is_current = true`?
+- [ ] Do my numbers make sense? (instances should be ≤ datasource_count)
+
 ### ❌ PITFALL #1: Misunderstanding the `sameEdit` Flag
 
 **WRONG:**
@@ -3267,13 +3305,19 @@ curl -s "http://localhost:1702/api/v1/db/findingData/query?size=500"
 
 ---
 
-**Document Version:** 2.1
-**Last Updated:** January 20, 2026
+**Document Version:** 2.2
+**Last Updated:** February 6, 2026
 **Maintainer:** PatchFox Team
 
 ---
 
 ## Changelog
+
+### v2.2 (February 6, 2026)
+- **Common Pitfalls:** Added critical gotcha #0 about `finding` table also containing historical data
+  - Both `package` and `finding` tables are append-only and contain ALL historical records
+  - Must join with `dataset_metrics.finding_indexes` for current state, not just `package_indexes`
+  - Added SQL examples for correct finding queries
 
 ### v2.1 (January 20, 2026)
 - **Step 1:** Added API pagination support for large datasets (>1000 records)
