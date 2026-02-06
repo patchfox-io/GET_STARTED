@@ -24,6 +24,39 @@ This runbook provides a systematic methodology for analyzing the security postur
 
 ## 1. Overview & Objectives
 
+### Complete Analysis Methodology
+
+**⚠️ MANDATORY: This document is an overview only. When performing dataset analysis, you MUST follow ALL steps in ALL detailed runbooks listed below. ⚠️**
+
+The complete step-by-step methodology is located in:
+
+**`../runbooks/survey_analysis/`**
+
+#### Detailed Runbook Manifest
+
+**YOU MUST EXECUTE EVERY STEP IN EACH OF THESE RUNBOOKS:**
+
+1. **[Data Collection](../runbooks/survey_analysis/01_data_collection.md)** - Gather all required dataset metrics and entities
+2. **[Composition Analysis](../runbooks/survey_analysis/02_composition_analysis.md)** - Breakdown by ecosystem (npm, maven, pypi, etc.)
+3. **[PES Analysis](../runbooks/survey_analysis/03_pes_analysis.md)** - Patch Efficacy Score deep dive
+4. **[RPS Analysis](../runbooks/survey_analysis/04_rps_analysis.md)** - Version fragmentation assessment
+5. **[Findings Analysis](../runbooks/survey_analysis/05_findings_analysis.md)** - Vulnerability trends and severity breakdown
+6. **[Backlog Analysis](../runbooks/survey_analysis/06_backlog_analysis.md)** - Aging analysis and remediation velocity
+7. **[Edit Analysis](../runbooks/survey_analysis/07_edit_analysis.md)** - Patch behavior and edit type breakdown
+8. **[Package Family Analysis](../runbooks/survey_analysis/08_package_family_analysis.md)** - Consolidation opportunities
+9. **[Package Deep Dive](../runbooks/survey_analysis/08a_package_deep_dive.md)** - Individual package investigation
+10. **[CVE Age Analysis](../runbooks/survey_analysis/09_cve_age_analysis.md)** - How old are unaddressed vulnerabilities
+11. **[Shadow Findings Analysis](../runbooks/survey_analysis/09a_shadow_findings_analysis.md)** - ⚠️ Zero-day exposure windows (vulnerabilities present BEFORE CVE publication)
+12. **[Package Growth Analysis](../runbooks/survey_analysis/10_package_growth_analysis.md)** - Attack surface expansion patterns
+13. **[Synthesis](../runbooks/survey_analysis/11_synthesis.md)** - Integrate all findings into coherent narrative
+14. **[Report Generation](../runbooks/survey_analysis/12_report_generation.md)** - Final report assembly
+
+**Start here:** [Survey Analysis README](../runbooks/survey_analysis/README.md)
+
+**Skipping any runbook = incomplete analysis. Follow the complete methodology.**
+
+---
+
 ### What This Analysis Reveals
 
 A comprehensive dataset analysis answers:
@@ -32,6 +65,7 @@ A comprehensive dataset analysis answers:
 - **Are patches addressing vulnerabilities?** (Backlog analysis)
 - **What types of patches are being made?** (Edit type breakdown)
 - **How old are unaddressed vulnerabilities?** (CVE age analysis)
+- **How long were vulnerabilities present BEFORE CVE publication?** (Shadow findings - zero-day window)
 - **Is the attack surface growing or shrinking?** (Package count, RPS trend)
 
 ### Output
