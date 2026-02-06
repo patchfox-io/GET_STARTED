@@ -20,6 +20,7 @@ The report should include:
    - Dataset name and analysis date
    - Overall grade
    - Key findings table
+   - Average shadow finding window (from Step 9A)
 
 2. **The Story** (narrative form)
    - Chapter 1: The Beginning
