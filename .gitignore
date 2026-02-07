@@ -1,0 +1,21 @@
+# Kiro CLI settings
+.kiro/
+
+# Analysis outputs (dataset-specific)
+nasa/
+*_security_analysis_*.md
+*_security_analysis_*.pdf
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+
+# Temporary files
+/tmp/
+*.tmp
+*.log

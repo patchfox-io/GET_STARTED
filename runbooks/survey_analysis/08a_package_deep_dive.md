@@ -58,20 +58,45 @@ The dataset-level metrics tell you "you have 13,000 findings." This step tells y
 
 ```sql
 -- THE MOST IMPORTANT QUERY: Which packages cause the most findings?
-SELECT
-    p.name as package,
-    COUNT(*) as finding_count,
-    COUNT(DISTINCT p.id) as package_instances
-FROM public.package p
-JOIN public.package_finding pf ON p.id = pf.package_id
-GROUP BY p.name
-ORDER BY finding_count DESC
+-- CRITICAL: Must use datasource.package_indexes to get CURRENT packages only
+WITH current_packages AS (
+    SELECT 
+        unnest(d.package_indexes) as pkg_id,
+        d.purl as datasource
+    FROM public.datasource d
+),
+package_findings AS (
+    SELECT 
+        p.name,
+        p.version,
+        p.id as package_id,
+        COUNT(DISTINCT pf.finding_id) as unique_findings,
+        COUNT(*) as finding_instances
+    FROM current_packages cp
+    JOIN public.package p ON p.id = cp.pkg_id
+    LEFT JOIN public.package_finding pf ON pf.package_id = p.id
+    GROUP BY p.name, p.version, p.id
+)
+SELECT 
+    name as package,
+    COUNT(DISTINCT package_id) as versions,
+    SUM(unique_findings) as total_unique_findings,
+    SUM(finding_instances) as total_instances
+FROM package_findings
+WHERE unique_findings > 0
+GROUP BY name
+ORDER BY total_unique_findings DESC
 LIMIT 30;
 ```
 
-**Expected output:** A list showing packages like `tensorflow: 4299 findings`
+**Expected output:** A list showing packages like `tensorflow: 1654 unique findings across 5 versions`
 
 **Action:** Note the top 10 packages - these are your remediation targets.
+
+**Key fields:**
+- `total_unique_findings`: Distinct CVEs (what matters for remediation)
+- `total_instances`: How many times those CVEs appear (indicates duplication)
+- `versions`: Number of package versions in use
 
 ---
 
@@ -81,14 +106,21 @@ For each top package, run:
 
 ```sql
 -- Get version breakdown for a specific package
-SELECT
+-- CRITICAL: Must use datasource.package_indexes to get CURRENT packages only
+WITH current_packages AS (
+    SELECT unnest(d.package_indexes) as pkg_id
+    FROM public.datasource d
+)
+SELECT 
     p.version,
-    COUNT(*) as findings
-FROM public.package p
-JOIN public.package_finding pf ON p.id = pf.package_id
-WHERE p.name = 'PACKAGE_NAME_HERE'
+    COUNT(DISTINCT pf.finding_id) as unique_findings,
+    COUNT(*) as finding_instances
+FROM current_packages cp
+JOIN public.package p ON p.id = cp.pkg_id
+LEFT JOIN public.package_finding pf ON pf.package_id = p.id
+WHERE p.name = 'PACKAGE_NAME_HERE' AND pf.finding_id IS NOT NULL
 GROUP BY p.version
-ORDER BY findings DESC;
+ORDER BY unique_findings DESC;
 ```
 
 **What you're looking for:**
@@ -97,7 +129,10 @@ ORDER BY findings DESC;
 
 **Example output:**
 ```
-tensorflow 1.0.1:   402 findings  ← UPGRADE FROM
+tensorflow 1.12:    399 findings  ← UPGRADE FROM
+tensorflow 1.15.0:  397 findings  ← UPGRADE FROM
+tensorflow 2.7.0:   187 findings  ← UPGRADE TO (or newer)
+```
 tensorflow 2.3.1:   388 findings  ← UPGRADE FROM
 tensorflow 2.11.1:    1 finding   ← UPGRADE TO
 ```
