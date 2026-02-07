@@ -46,7 +46,7 @@ The complete step-by-step methodology is located in:
 8. **[Package Family Analysis](../runbooks/survey_analysis/08_package_family_analysis.md)** - Consolidation opportunities
 9. **[Package Deep Dive](../runbooks/survey_analysis/08a_package_deep_dive.md)** - Individual package investigation
 10. **[CVE Age Analysis](../runbooks/survey_analysis/09_cve_age_analysis.md)** - How old are unaddressed vulnerabilities
-11. **[Shadow Findings Analysis](../runbooks/survey_analysis/09a_shadow_findings_analysis.md)** - ⚠️ Zero-day exposure windows (vulnerabilities present BEFORE CVE publication)
+11. **[Finding Lifecycle Analysis](../runbooks/survey_analysis/09a_finding_lifecycle_analysis.md)** - ⚠️ CRITICAL: Complete finding lifecycle tracking (shadow findings, discovery lag, remediation velocity, re-introductions)
 12. **[Package Growth Analysis](../runbooks/survey_analysis/10_package_growth_analysis.md)** - Attack surface expansion patterns
 13. **[Synthesis](../runbooks/survey_analysis/11_synthesis.md)** - Integrate all findings into coherent narrative
 14. **[Report Generation](../runbooks/survey_analysis/12_report_generation.md)** - Final report assembly
@@ -66,6 +66,8 @@ A comprehensive dataset analysis answers:
 - **What types of patches are being made?** (Edit type breakdown)
 - **How old are unaddressed vulnerabilities?** (CVE age analysis)
 - **How long were vulnerabilities present BEFORE CVE publication?** (Shadow findings - zero-day window)
+- **How long after CVE publication were vulnerable packages introduced?** (Discovery lag)
+- **How fast are findings remediated once introduced?** (Remediation velocity)
 - **Is the attack surface growing or shrinking?** (Package count, RPS trend)
 
 ### Output

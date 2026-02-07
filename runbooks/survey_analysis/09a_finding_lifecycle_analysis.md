@@ -9,6 +9,8 @@
 - Completed [Step 1: Data Collection](./01_data_collection.md)
 - Active dataset with analyzed findings
 - Direct database access
+- **Python dependencies:** `psycopg2` (PostgreSQL adapter)
+  - Install: `pip install psycopg2-binary`
 
 ---
 
