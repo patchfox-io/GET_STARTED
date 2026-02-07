@@ -184,6 +184,17 @@ for pkg_id, cve, removed_dt in all_removals:
         if days >= 0:
             remediation_times.append(days)
 
+# Calculate rates
+total_years = total_days / 365
+introduction_rate_per_year = len(all_introductions) / total_years if total_years > 0 else 0
+removal_rate_per_year = len(all_removals) / total_years if total_years > 0 else 0
+net_rate_per_year = introduction_rate_per_year - removal_rate_per_year
+
+# Patching effectiveness
+total_patched_all_time = len(all_removals)
+currently_present_count = len(currently_present)
+patching_fast_enough = removal_rate_per_year >= introduction_rate_per_year
+
 # Save detailed results
 output = {
     'period': {
@@ -196,10 +207,24 @@ output = {
         'unique_findings_introduced': len(first_introduction),
         'total_introductions': len(all_introductions),
         'total_removals': len(all_removals),
+        'total_patched': len(all_removals),
         're_introductions': len(all_introductions) - len(first_introduction)
     },
+    'rates': {
+        'introduction_rate_per_year': round(introduction_rate_per_year, 1),
+        'removal_rate_per_year': round(removal_rate_per_year, 1),
+        'net_rate_per_year': round(net_rate_per_year, 1),
+        'patching_fast_enough': patching_fast_enough
+    },
     'current_state': {
-        'findings_present': len(currently_present)
+        'findings_present': currently_present_count,
+        'total_patched_all_time': total_patched_all_time,
+        'net_change_from_start': currently_present_count - 0
+    },
+    'current_state': {
+        'findings_present': len(currently_present),
+        'total_patched_all_time': total_patched_all_time,
+        'net_change_from_start': currently_present_count - 0
     },
     'shadow_findings': {
         'total': len(shadow_findings),
@@ -281,14 +306,23 @@ at = data['all_time']
 print(f"\n📊 ALL-TIME METRICS")
 print(f"   Unique findings introduced: {at['unique_findings_introduced']:,}")
 print(f"   Total introductions: {at['total_introductions']:,}")
-print(f"   Total removals: {at['total_removals']:,}")
+print(f"   Total removals (patched): {at['total_removals']:,}")
 print(f"   Re-introductions: {at['re_introductions']:,}")
+
+# Rates
+r = data['rates']
+print(f"\n📈 RATES (Finding Instances)")
+print(f"   Introduction rate: {r['introduction_rate_per_year']:.1f} findings/year")
+print(f"   Removal rate: {r['removal_rate_per_year']:.1f} findings/year")
+print(f"   Net rate: {r['net_rate_per_year']:+.1f} findings/year")
+print(f"   Patching fast enough? {'✓ YES' if r['patching_fast_enough'] else '✗ NO'}")
 
 # Current state
 cs = data['current_state']
 print(f"\n📍 CURRENT STATE")
 print(f"   Findings present: {cs['findings_present']:,}")
-print(f"   Net change: {cs['findings_present'] - 0:+,} (from 0 at start)")
+print(f"   Total patched all-time: {cs['total_patched_all_time']:,}")
+print(f"   Net change from start: {cs['net_change_from_start']:+,}")
 
 # Shadow findings
 sf = data['shadow_findings']
@@ -325,6 +359,20 @@ print("\n" + "=" * 80)
 ---
 
 ## 9a.3 Interpretation
+
+### Net Rate Grade (Are You Patching Fast Enough?)
+
+Based on net rate (introduction rate - removal rate):
+
+| Net Rate | Grade | Status |
+|----------|-------|--------|
+| < -50 findings/year | A | Excellent - Actively reducing backlog |
+| -50 to 0 findings/year | B | Good - Slowly reducing backlog |
+| 0 to +50 findings/year | C | Moderate - Slight accumulation |
+| +50 to +200 findings/year | D | Poor - Significant accumulation |
+| > +200 findings/year | F | Critical - Rapid accumulation |
+
+**Key Insight:** If net rate is positive, you are introducing findings faster than you're removing them. The backlog will grow indefinitely without intervention.
 
 ### Shadow Findings Grade
 
@@ -368,17 +416,20 @@ Based on average time to remediate:
 
 | Pattern | What It Means | Action |
 |---------|---------------|--------|
+| Positive net rate | Introducing faster than remediating | Emergency intervention - findings accumulating |
 | High shadow findings | Using old packages with latent vulnerabilities | Audit dependency selection |
 | High discovery lag | Slow to adopt new packages/patches | Improve update cadence |
 | High re-introduction rate | Packages being added/removed repeatedly | Investigate churn causes |
 | Long remediation time | Slow response to known vulnerabilities | Implement SLAs |
-| Net positive findings | Introducing faster than remediating | Emergency intervention needed |
+| Low removal rate | Not patching actively | Increase remediation resources |
 
 ---
 
 ## Output
 
 - Complete lifecycle metrics (all-time, averages, current state)
+- Introduction/removal/net rates (findings per year)
+- Patching effectiveness assessment
 - Shadow findings analysis with severity breakdown
 - Discovery lag analysis
 - Remediation velocity metrics
