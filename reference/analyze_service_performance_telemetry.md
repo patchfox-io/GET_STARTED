@@ -22,13 +22,15 @@ Analyze-service processing time scales with three primary factors:
 
 The relationship is:
 ```
-time = 0.000149521×packages - 0.001413×findings + 0.000000420×findings² + 0.001833×datasources + 0.32
+time = 0.000185093×packages - 0.002007×findings + 0.000000440×findings² + 0.003662×datasources + 0.07
 ```
 
 Or simplified:
 ```
-time = packages/6688 + findings²/2379423 - findings/708 + datasources/546 + 0.32
+time = packages/5403 + findings²/2270565 - findings/498 + datasources/273 + 0.07
 ```
+
+**Formula derived from 1050 records (21 sample points) with R² = 0.9939**
 
 ### Why This Formula?
 
@@ -45,10 +47,10 @@ As the dataset grows:
 The regression captures this as a findings² term because datasource count correlates with dataset growth (more commits processed = more datasources = more CVEs spread across datasources).
 
 **At 200k packages, 20k findings, 3000 datasources (on this system):**
-- Packages contribute: 29.9s (linear scaling)
-- Findings² contribute: 168.1s (quadratic - the bottleneck)
-- Datasources contribute: 5.5s (linear scaling)
-- **Total: ~176 seconds per record**
+- Packages contribute: 37.0s (linear scaling)
+- Findings² contribute: 176.2s (quadratic - the bottleneck)
+- Datasources contribute: 11.0s (linear scaling)
+- **Total: ~184 seconds (3.1 minutes) per record**
 
 ## Prerequisites
 
@@ -156,15 +158,25 @@ import numpy as np
 data = [
     (5, 8, 1, 0.34),
     (1781, 280, 50, 0.55),
+    (8076, 427, 100, 0.57),
     (13513, 848, 150, 1.40),
     (19004, 1159, 200, 2.09),
+    (22417, 1438, 250, 2.81),
+    (23194, 2387, 300, 3.44),
     (23553, 2453, 350, 4.26),
+    (23833, 2540, 400, 4.11),
+    (24940, 2569, 444, 4.25),
     (25548, 3030, 494, 4.83),
+    (27858, 3415, 543, 5.44),
     (30859, 4029, 592, 6.69),
+    (33587, 4204, 642, 7.76),
     (34340, 4311, 692, 7.99),
+    (37536, 4430, 742, 9.35),
     (43100, 5077, 792, 12.36),
     (50786, 5607, 842, 14.13),
-    (54003, 5693, 892, 16.13)
+    (54003, 5693, 892, 16.13),
+    (57656, 5803, 942, 17.96),
+    (61027, 6103, 992, 19.63)
 ]
 
 # Build feature matrix: packages, findings, findings², datasources, constant
@@ -288,19 +300,29 @@ From IBM dataset processing (February 2026):
 
 | Record | Packages | Findings | Datasources | Actual Time (s) | Projected Time (s) | Δ |
 |--------|----------|----------|-------------|-----------------|-------------------|---|
-| 1      | 5        | 8        | 1           | 0.34            | 0.31              | -0.03 |
-| 51     | 1,781    | 280      | 50          | 0.55            | 0.31              | -0.24 |
-| 151    | 13,513   | 848      | 150         | 1.40            | 1.72              | +0.32 |
-| 201    | 19,004   | 1,159    | 200         | 2.09            | 2.45              | +0.36 |
-| 351    | 23,553   | 2,453    | 350         | 4.26            | 3.54              | -0.72 |
-| 501    | 25,548   | 3,030    | 494         | 4.83            | 4.62              | -0.21 |
-| 601    | 30,859   | 4,029    | 592         | 6.69            | 7.15              | +0.46 |
-| 701    | 34,340   | 4,311    | 692         | 7.99            | 8.44              | +0.45 |
-| 801    | 43,100   | 5,077    | 792         | 12.36           | 11.87             | -0.49 |
-| 851    | 50,786   | 5,607    | 842         | 14.13           | 14.74             | +0.61 |
-| 901    | 54,003   | 5,693    | 892         | 16.13           | 15.60             | -0.53 |
+| 1      | 5        | 8        | 1           | 0.34            | 0.06              | -0.28 |
+| 51     | 1,781    | 280      | 50          | 0.55            | 0.05              | -0.50 |
+| 101    | 8,076    | 427      | 100         | 0.57            | 1.15              | +0.58 |
+| 151    | 13,513   | 848      | 150         | 1.40            | 1.73              | +0.33 |
+| 201    | 19,004   | 1,159    | 200         | 2.09            | 2.58              | +0.49 |
+| 251    | 22,417   | 1,438    | 250         | 2.81            | 3.16              | +0.35 |
+| 301    | 23,194   | 2,387    | 300         | 3.44            | 3.18              | -0.26 |
+| 351    | 23,553   | 2,453    | 350         | 4.26            | 3.44              | -0.82 |
+| 401    | 23,833   | 2,540    | 400         | 4.11            | 3.69              | -0.42 |
+| 451    | 24,940   | 2,569    | 444         | 4.25            | 4.06              | -0.19 |
+| 501    | 25,548   | 3,030    | 494         | 4.83            | 4.57              | -0.26 |
+| 551    | 27,858   | 3,415    | 543         | 5.44            | 5.50              | +0.06 |
+| 601    | 30,859   | 4,029    | 592         | 6.69            | 7.01              | +0.32 |
+| 651    | 33,587   | 4,204    | 642         | 7.76            | 7.98              | +0.22 |
+| 701    | 34,340   | 4,311    | 692         | 7.99            | 8.49              | +0.50 |
+| 751    | 37,536   | 4,430    | 742         | 9.35            | 9.49              | +0.14 |
+| 801    | 43,100   | 5,077    | 792         | 12.36           | 12.11             | -0.25 |
+| 851    | 50,786   | 5,607    | 842         | 14.13           | 15.14             | +1.01 |
+| 901    | 54,003   | 5,693    | 892         | 16.13           | 16.18             | +0.05 |
+| 951    | 57,656   | 5,803    | 942         | 17.96           | 17.37             | -0.59 |
+| 1001   | 61,027   | 6,103    | 992         | 19.63           | 19.15             | -0.48 |
 
-**R² = 0.9932** (excellent fit)
+**R² = 0.9939** (excellent fit)
 
 ## Performance Optimizations Applied
 
@@ -334,14 +356,14 @@ From IBM dataset processing (February 2026):
 
 ### At 200k Packages, 20k Findings, 3000 Datasources
 
-**Predicted processing time: 175.6 seconds (2.9 minutes) per record**
+**Predicted processing time: 184.1 seconds (3.1 minutes) per record**
 
 **Breakdown:**
-- Packages contribution: 29.9s
-- Findings² contribution: 168.1s (dominant factor)
-- Findings linear: -28.2s (negative coefficient)
-- Datasources contribution: 5.5s
-- Constant: 0.3s
+- Packages contribution: 37.0s
+- Findings² contribution: 176.2s (dominant factor)
+- Findings linear: -40.3s (negative coefficient)
+- Datasources contribution: 11.0s
+- Constant: 0.1s
 
 ### Job Completion Estimate
 
