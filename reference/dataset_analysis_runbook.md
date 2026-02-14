@@ -2932,7 +2932,32 @@ WHERE dm.is_current = true;
 - [ ] Am I filtering `WHERE dm.is_current = true`?
 - [ ] Do my numbers make sense? (instances should be ≤ datasource_count)
 
-### ❌ PITFALL #1: Misunderstanding the `sameEdit` Flag
+### ⚠️ CRITICAL GOTCHA #1: Package Counts Have Different Semantics
+
+**IMPORTANT:** Not all package-related counts in `dataset_metrics` measure the same thing!
+
+| Field | What It Counts | Example |
+|-------|----------------|---------|
+| `packages` | **TOTAL INSTANCES** (with duplicates) | If 3 datasources use `foo@1.0`, counts as **3** |
+| `package_indexes` array | **TOTAL INSTANCES** (with duplicates) | Contains 3 entries for `foo@1.0` |
+| ALL `*Findings` counts | **TOTAL INSTANCES** (with duplicates) | If 3 datasources have same finding, counts as **3** |
+| `downlevelPackages*` | **UNIQUE TYPES** (deduplicated) | If 3 datasources use downlevel `foo@1.0`, counts as **1** |
+| `stalePackages*` | **UNIQUE TYPES** (deduplicated) | If 3 datasources use stale `foo@1.0`, counts as **1** |
+
+**Why This Matters:**
+- `packages` = 7,500 (total instances across all datasources)
+- `downlevelPackages` = 2,300 (unique package types that are downlevel)
+- These numbers measure different things and cannot be directly compared!
+
+**Example Scenario:**
+- Dataset has 250 datasources
+- Package `log4j@2.14.1` (downlevel) is used by 50 datasources
+- Package `spring-core@5.3.0` (downlevel) is used by 30 datasources
+- Result:
+  - `packages` contribution: 80 (50 + 30 instances)
+  - `downlevelPackages` contribution: 2 (2 unique types)
+
+### ❌ PITFALL #2: Misunderstanding the `sameEdit` Flag
 
 **WRONG:**
 "66% of edits are 'same version' re-evaluations with NO version change and ZERO security potential"
