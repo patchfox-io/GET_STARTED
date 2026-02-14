@@ -2932,6 +2932,27 @@ WHERE dm.is_current = true;
 - [ ] Am I filtering `WHERE dm.is_current = true`?
 - [ ] Do my numbers make sense? (instances should be ≤ datasource_count)
 
+### ⚠️ CRITICAL GOTCHA #0.5: Package Metrics Are Computed Against Present-Day State
+
+**ALL package downlevel/stale/versions-behind metrics are computed with respect to PRESENT DAY knowledge, not historical state.**
+
+The `package` table stores current metadata:
+- `number_versions_behind_head` - how many versions behind **NOW**
+- `most_recent_version_published_at` - when the latest version was published (could be yesterday)
+- Stale calculations use `NOW()` - interval, not commit datetime
+
+**Impact on Historical Analysis:**
+- A commit from 2019 will show packages as "downlevel" or "stale" based on 2026 package index data
+- A package that was current in 2019 may show as "5 versions behind" today
+- Stale metrics reflect "how old is the latest version today" not "was it stale in 2019"
+
+**This means:**
+- ✅ Metrics are accurate for **current/recent** commits
+- ⚠️ Metrics are **anachronistic** for **historical** commits (showing present-day state, not historical state)
+- ❌ You cannot determine "was this package downlevel at the time of commit" from these metrics alone
+
+**Why:** The package table doesn't store historical version metadata - only current state. True historical analysis would require a time-series package version database.
+
 ### ❌ PITFALL #1: Misunderstanding the `sameEdit` Flag
 
 **WRONG:**
