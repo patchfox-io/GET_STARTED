@@ -164,50 +164,32 @@ Total number of packages with low findings for the [dataset](./dataset.md) repre
 ### downlevelPackages
 Total number of downlevel packages for the [dataset](./dataset.md) represented by this datasetMetrics record at the point this point in time given the update represented by the [datasourceEvent](./datasourceEvent.md) associated with the txid specified in this record. See [PatchFox Custom Metrics](./reference/custom_metrics.md) for more information on what a "downlevel package" is. 
 
-**IMPORTANT:** This count represents **UNIQUE PACKAGE TYPES** (deduplicated). If the same downlevel package is used by 3 datasources, it counts as 1. 
-
 ### downlevelPackagesMajor
-Total number of downlevel packages by semantic versioning major for the [dataset](./dataset.md) represented by this datasetMetrics record at the point this point in time given the update represented by the [datasourceEvent](./datasourceEvent.md) associated with the txid specified in this record. See [PatchFox Custom Metrics](./reference/custom_metrics.md) for more information on what a "downlevel package" is. 
-
-**IMPORTANT:** This count represents **UNIQUE PACKAGE TYPES** (deduplicated).
+Total number of downlevel packages by semantic versioning major for the [dataset](./dataset.md) represented by this datasetMetrics record at the point this point in time given the update represented by the [datasourceEvent](./datasourceEvent.md) associated with the txid specified in this record. See [PatchFox Custom Metrics](./reference/custom_metrics.md) for more information on what a "downlevel package" is.
 
 ### downlevelPackagesMinor
-Total number of downlevel packages by semantic versioning minor for the [dataset](./dataset.md) represented by this datasetMetrics record at the point this point in time given the update represented by the [datasourceEvent](./datasourceEvent.md) associated with the txid specified in this record. See [PatchFox Custom Metrics](./reference/custom_metrics.md) for more information on what a "downlevel package" is. 
-
-**IMPORTANT:** This count represents **UNIQUE PACKAGE TYPES** (deduplicated).
+Total number of downlevel packages by semantic versioning minor for the [dataset](./dataset.md) represented by this datasetMetrics record at the point this point in time given the update represented by the [datasourceEvent](./datasourceEvent.md) associated with the txid specified in this record. See [PatchFox Custom Metrics](./reference/custom_metrics.md) for more information on what a "downlevel package" is.
 
 ### downlevelPackagesPatch
 Total number of downlevel packages by semantic versioning patch for the [dataset](./dataset.md) represented by this datasetMetrics record at the point this point in time given the update represented by the [datasourceEvent](./datasourceEvent.md) associated with the txid specified in this record. See [PatchFox Custom Metrics](./reference/custom_metrics.md) for more information on what a "downlevel package" is. 
 
-**IMPORTANT:** This count represents **UNIQUE PACKAGE TYPES** (deduplicated). 
-
 ### stalePackages
 Total number of stale packages for the [dataset](./dataset.md) represented by this datasetMetrics record at the point this point in time given the update represented by the [datasourceEvent](./datasourceEvent.md) associated with the txid specified in this record. See [PatchFox Custom Metrics](./reference/custom_metrics.md) for more information on what a "stale package" is. 
 
-**IMPORTANT:** This count represents **UNIQUE PACKAGE TYPES** (deduplicated). If the same stale package is used by 3 datasources, it counts as 1. 
-
 ### stalePackagesSixMonths
-Total number of stale packages for more than six months for the [dataset](./dataset.md) represented by this datasetMetrics record at the point this point in time given the update represented by the [datasourceEvent](./datasourceEvent.md) associated with the txid specified in this record. See [PatchFox Custom Metrics](./reference/custom_metrics.md) for more information on what a "stale package" is. 
-
-**IMPORTANT:** This count represents **UNIQUE PACKAGE TYPES** (deduplicated).
+Total number of stale packages for more than six months for the [dataset](./dataset.md) represented by this datasetMetrics record at the point this point in time given the update represented by the [datasourceEvent](./datasourceEvent.md) associated with the txid specified in this record. See [PatchFox Custom Metrics](./reference/custom_metrics.md) for more information on what a "stale package" is.
 
 
 ### stalePackagesOneYear
-Total number of stale packages for more than one year for the [dataset](./dataset.md) represented by this datasetMetrics record at the point this point in time given the update represented by the [datasourceEvent](./datasourceEvent.md) associated with the txid specified in this record. See [PatchFox Custom Metrics](./reference/custom_metrics.md) for more information on what a "stale package" is. 
-
-**IMPORTANT:** This count represents **UNIQUE PACKAGE TYPES** (deduplicated).
+Total number of stale packages for more than one year for the [dataset](./dataset.md) represented by this datasetMetrics record at the point this point in time given the update represented by the [datasourceEvent](./datasourceEvent.md) associated with the txid specified in this record. See [PatchFox Custom Metrics](./reference/custom_metrics.md) for more information on what a "stale package" is.
 
 
 ### stalePackagesOneYearSixMonths
-Total number of stale packages for more than one year six months for the [dataset](./dataset.md) represented by this datasetMetrics record at the point this point in time given the update represented by the [datasourceEvent](./datasourceEvent.md) associated with the txid specified in this record. See [PatchFox Custom Metrics](./reference/custom_metrics.md) for more information on what a "stale package" is. 
-
-**IMPORTANT:** This count represents **UNIQUE PACKAGE TYPES** (deduplicated).
+Total number of stale packages for more than one year six months for the [dataset](./dataset.md) represented by this datasetMetrics record at the point this point in time given the update represented by the [datasourceEvent](./datasourceEvent.md) associated with the txid specified in this record. See [PatchFox Custom Metrics](./reference/custom_metrics.md) for more information on what a "stale package" is.
 
 
 ### stalePackagesTwoYears
 Total number of stale packages for more than two years for the [dataset](./dataset.md) represented by this datasetMetrics record at the point this point in time given the update represented by the [datasourceEvent](./datasourceEvent.md) associated with the txid specified in this record. See [PatchFox Custom Metrics](./reference/custom_metrics.md) for more information on what a "stale package" is. 
-
-**IMPORTANT:** This count represents **UNIQUE PACKAGE TYPES** (deduplicated). 
 
 
 ### patches
