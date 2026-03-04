@@ -1,6 +1,6 @@
-# PatchFox Analyze-Service Performance Telemetry Runbook
+# PatchFox Analyze-Service Performance Telemetry
 
-This runbook explains how to measure and predict analyze-service processing performance based on dataset characteristics.
+This document explains how to measure and predict analyze-service processing performance based on dataset characteristics.
 
 ## Reference System Specifications
 
@@ -495,7 +495,6 @@ analyze-service:
 
 ## References
 
-- [Dataset Analysis Runbook](../dataset_analysis_runbook.md)
 - [Data Service API Guide](../data_service_api.md)
 - [Dataset Metrics Entity](../entities/datasetMetrics.md)
 - [Datasource Metrics Entity](../entities/datasourceMetrics.md)

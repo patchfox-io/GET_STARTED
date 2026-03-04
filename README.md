@@ -176,7 +176,7 @@ We have a [ci-cd component](https://hub.docker.com/r/patchfoxio/patchfox-etl) fo
 
 
 ### ANALYZE YOUR DATA 
-PatchFox provides a standard runbook for top level analysis. You can point the agent to the [runbook](reference/dataset_analysis_runbook.md) and Patch will run the analysis, provide an executive summary to the terminal, and serialize a markdown report with the full findings to your filesystem. 
+Use the data-service API endpoints or connect directly to the database to query and analyze your data. The Swagger documentation at http://localhost:1702/swagger-ui.html provides interactive access to all available endpoints. 
 
 
 ### HOW MUCH DATA CAN I PUT INTO PATCHFOX? 
